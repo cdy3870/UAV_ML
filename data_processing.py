@@ -221,12 +221,12 @@ def split_features(full_parsed):
                 
 
 def main():
-    json_file = "px4-Ulog-Parsers/MetaLogs.json"
+    json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
     with open(json_file, 'r') as inputFile:
         meta_json = json.load(inputFile)
     indexable_meta = get_indexable_meta(meta_json)
 
-    ulog_folder = "px4-Ulog-Parsers/dataDownloaded"
+    ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
     ulog_ids = [k for k in list(indexable_meta.keys()) 
                 if indexable_meta[k]["type"] == "Quadrotor" or indexable_meta[k]["type"] == "Fixed Wing"]
     # ulog_ids = os.listdir("csvFiles")
