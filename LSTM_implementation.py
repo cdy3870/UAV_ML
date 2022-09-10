@@ -18,6 +18,20 @@ from sklearn.model_selection import KFold, StratifiedKFold
 import random 
 from itertools import combinations
 import csv
+import random
+import numpy as np
+
+
+# Seed
+seed = 123
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
 
 class UAVDataset(Dataset):
 	"""
@@ -90,7 +104,7 @@ class LSTM(nn.Module):
 		# print(out.shape)
 		return out
 
-def train(model, train_loader, test_loader, params):
+def train(model, train_loader, test_loader, params, verbose=True):
 	'''
 	Trains the LSTM 
 
@@ -160,19 +174,44 @@ def train(model, train_loader, test_loader, params):
 
 		if phase == "eval" and (epoch + 1) % params["num_epochs"]/4 == 0 :
 			counts = Counter(y_pred)
-			print(counts)
-			# print(confusion_matrix(y_true, y_pred))
 			report = classification_report(y_true, y_pred, target_names=['Quadrotor', 'Fixed Wing'], output_dict=True)
-			print(classification_report(y_true, y_pred, target_names=['Quadrotor', 'Fixed Wing']))
 			auc_score = roc_auc_score(y_true, y_pred)
-			print(auc_score)
-			# val_accuracy = str(num_correct/true_size)
-			# print("Val accuracy: {}".format(val_accuracy))
+
+			if verbose:
+				print(counts)
+				print(classification_report(y_true, y_pred, target_names=['Quadrotor', 'Fixed Wing']))
+				print(auc_score)
+
 
 		if phase == "eval" and epoch == params["num_epochs"] - 1:
 			pred_from_last_epoch = y_pred
 
-	return pred_from_last_epoch, report, auc_score, counts
+	return pred_from_last_epoch, report, auc_score, counts, model
+
+def get_dataloaders(X_train, y_train, X_test, y_test):
+	# Form datasets and dataloaders
+	train_dataset = UAVDataset(X_train, y_train)
+	test_dataset = UAVDataset(X_test, y_test)
+
+	train_loader = DataLoader(train_dataset,
+							  batch_size=8,
+							  shuffle=False)
+	test_loader = DataLoader(test_dataset,
+							  batch_size=1,
+							  shuffle=False)
+
+	return train_loader, test_loader
+
+def get_model(input_size, hidden_size = 128, num_classes=2, num_layers=1):
+	hidden_size = 128
+	num_classes = 2
+	num_layers = 1
+	model = LSTM(input_size=input_size,
+				 hidden_size=hidden_size,
+				 num_classes=num_classes,
+				num_layers=num_layers)
+
+	return model
 
 
 
@@ -316,24 +355,44 @@ def main():
 
 	# modify x
 	parser.add_argument("-p", "--shorten_percent", type=int, help="percentage to keep of timestamps")
+	parser.add_argument("-bme", "--beg_mid_end", type=str, help="beginning, middle, or end of timestamps")	
 	parser.add_argument('-i','--indices', nargs='+', help='select indices from parsed features')
 	parser.add_argument('-a','--augment', type=int, help='augment train set (fixed wing) percentage')
-	parser.add_argument('-ros','--random_oversampling', type=int, help='random oversampling ratio')
 	parser.add_argument('-in','--independent', action="store_true", help='standardize time series independently')
 	parser.add_argument('-ints','--intervals', type=int, help='number of timestamp intervals', default=50)
 
+	# oversampling and undersampling
+	parser.add_argument("-sample", "--sample_method", type=str, help="[ros, rus, nn, smote]")
+	parser.add_argument('-ros_r','--ros_ratio', type=float, help='random oversampling ratio')
+	parser.add_argument('-rus_r','--rus_ratio', type=float, help='random undersampling ratio')
+
 	parser.add_argument('-csv','--csv', type=str, help='csv file name output')
 
+	parser.add_argument("-tr", "--transfer_learning", action="store_true", help="apply transfer learning", default=None)
+
+	parser.add_argument('-X','--X_path', type=str, help='specific X path')
+	parser.add_argument('-Y','--Y_path', type=str, help='specific Y path')
+
+	parser.add_argument('-scal','--scaler', type=str, help='scaler type', default="standard")
 
 	args = parser.parse_args()
 
-	X, y = dp.get_stored_data(args.n_tables, num_t_ints=args.intervals)
+	# Modification of the full dataset
 
 	# If we want data augmentation on full set
 	# X, y = dp.get_augmented_data(X, y)
 
+	print(args.X_path)
+	if args.X_path != None and args.Y_path != None:
+		X, y = dp.get_stored_data(args.n_tables, X_path=args.X_path, Y_path=args.Y_path)
 	if args.indices != None:
 		X = dp.feature_index(args.n_tables, list(map(int, args.indices)))
+	if args.sample_method == "rus_full":
+		sample_ratio = args.rus_ratio/100
+		X, y = dp.apply_sampling(X, y, sample_method="rus", sample_ratio=sample_ratio)
+	if args.X_path == None and args.Y_path == None and args.indices == None and args.sample_method == None:
+		X, y = dp.get_stored_data(args.n_tables, num_t_ints=args.intervals)
+
 
 	print("------------------------------------ Parameters ------------------------------------")
 	print("Description: " + args.description)
@@ -377,27 +436,13 @@ def main():
 
 
 			# Form datasets and dataloaders
-			train_dataset = UAVDataset(X_train, y_train)
-			test_dataset = UAVDataset(X_test, y_test)
-
-
-			train_loader = DataLoader(train_dataset,
-									  batch_size=8,
-									  shuffle=False)
-			test_loader = DataLoader(test_dataset,
-									  batch_size=1,
-									  shuffle=False)
+			train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test)
 
 			# Form model
-			input_size = train_dataset.__getitem__(0)[0].shape[1]
-			hidden_size = 128
-			num_classes = 2
-			num_layers = 1
-			model = LSTM(input_size=input_size,
-						 hidden_size=hidden_size,
-						 num_classes=num_classes,
-						num_layers=num_layers)
-
+			input_size = X_train.shape[2]
+			model = get_model(input_size)
+			
+			# Assign training params
 			params = {"lr": args.learning_rate, "num_epochs":args.n_epochs}
 
 			# Train model
@@ -424,49 +469,67 @@ def main():
 			X_train, X_test = np.array(X)[train_index], np.array(X)[test_index]
 			y_train, y_test = np.array(y)[train_index], np.array(y)[test_index]
 
+			if args.beg_mid_end != None:
+				X = dp.get_stored_data(args.n_tables, beg_mid_end=args.beg_mid_end)
+				X_test = np.array(X)[test_index]
+
 			if args.shorten_percent != None:
 				X = dp.get_stored_data(args.n_tables, percentage=args.shorten_percent)
 				X_test = np.array(X)[test_index]
 
 			if args.augment != None:
-				X_train, y_train = dp.get_augmented_data(X_train, y_train, augment_percent=args.augment/100)
+				if args.transfer_learning == None:
+					X_train, y_train = dp.get_augmented_data(X_train, y_train, augment_percent=args.augment/100)
+				else:
+					X_train, y_train = dp.get_augmented_data(X_train, y_train)
+				X_train = np.array(X_train)
+				y_train = np.array(y_train)
+				print(X_train.shape)
+
+			if args.sample_method in ["ros", "rus", "smote", "nn"]:
+				sample_ratio = 0
+
+				if args.sample_method == "ros":
+					sample_ratio = args.ros_ratio/100
+				elif args.sample_method == "rus":
+					sample_ratio = args.rus_ratio/100
+
+				X_train, y_train = dp.apply_sampling(X_train, y_train, sample_method=args.sample_method, sample_ratio=sample_ratio)
 				X_train = np.array(X_train)
 				y_train = np.array(y_train)
 
-			if args.random_oversampling != None:
-				X_train, y_train = dp.random_oversample(X_train, y_train, sample_ratio=args.random_oversampling/100)
-				X_train = np.array(X_train)
-				y_train = np.array(y_train)
-
-
-			X_train, X_test = dp.standardize_data(X_train, X_test, independent=args.independent)
+			# Standardize data
+			X_train, X_test = dp.standardize_data(X_train, X_test, scaler_type=args.scaler, independent=args.independent)
 
 			# Form datasets and dataloaders
-			train_dataset = UAVDataset(X_train, y_train)
-			test_dataset = UAVDataset(X_test, y_test)
-
-			train_loader = DataLoader(train_dataset,
-									  batch_size=8,
-									  shuffle=False)
-			test_loader = DataLoader(test_dataset,
-									  batch_size=1,
-									  shuffle=False)
+			train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test)
 
 			# Form model
-			input_size = train_dataset.__getitem__(0)[0].shape[1]
-			hidden_size = 128
-			num_classes = 2
-			num_layers = 1
-			model = LSTM(input_size=input_size,
-						 hidden_size=hidden_size,
-						 num_classes=num_classes,
-						num_layers=num_layers)
-
+			input_size = X_train.shape[2]
+			model = get_model(input_size)
+			
+			# Assign training params
 			params = {"lr": args.learning_rate, "num_epochs":args.n_epochs}
 
-			# # Train model
+
+			# Train model
 			print("------------------------------------ " + "Fold: " + str(fold) + " ------------------------------------")
-			_, report, auc_score, counts = train(model, train_loader, test_loader, params)
+
+			if args.transfer_learning != None:
+				# Train and save model on data augmented set
+				_, _, _, _, model = train(model, train_loader, test_loader, params, verbose=False)
+
+				# Get unaugmented data
+				X_train, X_test = np.array(X)[train_index], np.array(X)[test_index]
+				y_train, y_test = np.array(y)[train_index], np.array(y)[test_index]	
+				X_train, X_test = dp.standardize_data(X_train, X_test, independent=args.independent)
+				train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test)		
+
+				# Finetune pretrained model on unaugmented data
+				_, report, auc_score, counts, _ = train(model, train_loader, test_loader, params)
+			else:
+				_, report, auc_score, counts, _ = train(model, train_loader, test_loader, params)
+
 
 
 			if args.csv != None:

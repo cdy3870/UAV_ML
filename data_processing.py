@@ -13,10 +13,11 @@ import json
 from collections import Counter
 from itertools import combinations, islice
 from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import random
 import copy
-from imblearn.over_sampling import RandomOverSampler
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour
 
 ################################################## FEATURE EXTRACTION/SELECTION ########################################################
 
@@ -52,7 +53,7 @@ feat_list = [
             {"desc": "sys | throttle", "table name": ["manual_control_setpoint"], "feat(s) name(s)": "throttle", "feat(s)": ["z"]}]
 
 ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
-
+json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
 
 def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_name, cols):
     spec_df = []
@@ -138,14 +139,16 @@ def get_indexable_meta(meta_json):
     return indexable_meta
 
 
-def get_filtered_ids(ulog_ids, indexable_meta, avg_dur=None):
-    filtered_ids = []
+def get_filtered_ids():
+    with open(json_file, 'r') as inputFile:
+        meta_json = json.load(inputFile)
+    indexable_meta = get_indexable_meta(meta_json)
 
-    for u in ulog_ids:
-        duration = indexable_meta[u]["duration"]
-        if duration != "0:00:00":
-            filtered_ids.append(u)
+    ulogs_downloaded = os.listdir(ulog_folder)
+    drone_ids = [u[:-4] for u in ulogs_downloaded
+                if indexable_meta[u[:-4]]["type"] == "Quadrotor" or indexable_meta[u[:-4]]["type"] == "Fixed Wing"]
 
+    filtered_ids = [u for u in drone_ids if indexable_meta[u]["duration"] != "0:00:00"]
             
     return filtered_ids
 
@@ -193,12 +196,12 @@ def get_n_feats_matched(names):
     return list(matched)
     
 
-def convert_to_dfs_ulog(ulog_path, only_col_names=False, messages=None):
+def convert_to_dfs_ulog(ulog_path, specific_tables=[], only_col_names=False, messages=None):
     try:
         log = pyulog.ULog(ulog_path, messages)
     except:
         print("failed to convert " + str(ulog_path) + " to dfs")
-        return []
+        return {}, []
 
     # column naming
     d_col_rename = {
@@ -215,18 +218,34 @@ def convert_to_dfs_ulog(ulog_path, only_col_names=False, messages=None):
     if not only_col_names:
         data = {}
         names = []
-        for msg in log.data_list:
-            msg_data = pd.DataFrame.from_dict(msg.data)
-            names.append(msg.name)
-            msg_data.columns = [
-                col_rename_pattern.sub(
-                    lambda x: d_col_rename[x.group()], col)
-                for col in msg_data.columns
-                ]
-            # msg_data.index = pd.TimedeltaIndex(msg_data['timestamp'] * 1e3, unit='ns')
-            data['{:s}'.format(msg.name)] = [msg_data]
-            
-        return data, names
+
+        if len(specific_tables) == 0:
+            for msg in log.data_list:
+                msg_data = pd.DataFrame.from_dict(msg.data)
+                names.append(msg.name)
+                msg_data.columns = [
+                    col_rename_pattern.sub(
+                        lambda x: d_col_rename[x.group()], col)
+                    for col in msg_data.columns
+                    ]
+                # msg_data.index = pd.TimedeltaIndex(msg_data['timestamp'] * 1e3, unit='ns')
+                data['{:s}'.format(msg.name)] = [msg_data]
+
+            return data, names
+        else:
+            for msg in log.data_list:
+                if msg.name in specific_tables:
+                    msg_data = pd.DataFrame.from_dict(msg.data)
+                    names.append(msg.name)
+                    msg_data.columns = [
+                        col_rename_pattern.sub(
+                            lambda x: d_col_rename[x.group()], col)
+                        for col in msg_data.columns
+                        ]
+                    # msg_data.index = pd.TimedeltaIndex(msg_data['timestamp'] * 1e3, unit='ns')
+                    data['{:s}'.format(msg.name)] = [msg_data]       
+
+        return data, names     
 
     else: return [msg.name for msg in log.data_list]
 
@@ -247,13 +266,32 @@ def split_features(full_parsed):
                     full_parsed[key][k + " | " + col] = [replace_nulls(temp_df[["timestamp", col]])]
                 del full_parsed[key][k]
 
-    new_parsed = {}
 
     sample_key = list(full_parsed.keys())[0]
+
+    keys_dict = {}
     
     for key, value in full_parsed.items():
-        if len(full_parsed[key].keys()) == len(full_parsed[sample_key].keys()):
+        keys = set(full_parsed[key].keys())
+
+        if frozenset(keys) in keys_dict:
+            keys_dict[frozenset(keys)] += 1
+        else:
+            keys_dict[frozenset(keys)] = 1
+
+    most_features = max(keys_dict, key=keys_dict.get)
+
+    # print(most_features)
+    # print(keys_dict[most_features])
+
+    new_parsed = {}
+    for key, value in full_parsed.items():
+        if full_parsed[key].keys() == set(most_features):
             new_parsed[key] = value
+
+    print(len(new_parsed))
+
+
 
     return new_parsed
 
@@ -303,16 +341,29 @@ def create_intervals(full_parsed, num_t_ints=50):
     return intervals
                 
 
-def timestamp_shorten(full_parsed, keep_percentage):
+def timestamp_shorten(full_parsed, keep_percentage, beg_mid_end):
     # Get the current mins and maxes of each ulog
     mins_maxes = get_mins_maxes(full_parsed)
     full_parsed_copy = copy.deepcopy(full_parsed)
     for key, value in full_parsed_copy.items():
         ulog_min = round(mins_maxes[key][0])
         ulog_max = round(mins_maxes[key][1])
-        added_amount = round((ulog_max - ulog_min) * (keep_percentage/100))
-        beginning = random.randint(ulog_min, ulog_max - added_amount)
-        end = beginning + added_amount
+
+        if beg_mid_end == None:
+            added_amount = round((ulog_max - ulog_min) * (keep_percentage/100))
+            start = random.randint(ulog_min, ulog_max - added_amount)
+            end = start + added_amount
+        else:
+            third = round((ulog_max - ulog_min) * (0.33))
+            if beg_mid_end == "beg":
+                start = ulog_min
+                end = start + third
+            elif beg_mid_end == "mid":
+                start = ulog_min + third
+                end = start + third
+            elif beg_mid_end == "end":
+                start = ulog_min + 2*third
+                end = ulog_max               
 
         # print(ulog_min)
         # print(ulog_max)
@@ -322,19 +373,19 @@ def timestamp_shorten(full_parsed, keep_percentage):
         # print(full_parsed_copy[key]['rpy_angles | roll_body'])
 
         for key_2, value_2 in full_parsed_copy[key].items():
-            full_parsed_copy[key][key_2] = [full_parsed_copy[key][key_2][0][full_parsed_copy[key][key_2][0]['timestamp'].between(beginning, end)]]
+            full_parsed_copy[key][key_2] = [full_parsed_copy[key][key_2][0][full_parsed_copy[key][key_2][0]['timestamp'].between(start, end)]]
 
         # print(full_parsed_copy[key]['rpy_angles | roll_body'])
 
     return full_parsed_copy
 
-def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50):
+def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50, beg_mid_end=None):
     print("Timestamp Binning")
     X = []
 
     if keep_percentage != 100:
         # Shorten the timestamps
-        full_parsed = timestamp_shorten(full_parsed, keep_percentage)
+        full_parsed = timestamp_shorten(full_parsed, keep_percentage, beg_mid_end)
 
         # Get the new intervals
         intervals = create_intervals(full_parsed, num_t_ints)
@@ -394,40 +445,52 @@ def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50):
 
 def feature_select(parse_id="", feats_subset=None, num_tables=7):
     print("Feature Selecting")
-    with open("ids_matchedfeats.txt", 'rb') as f:
-        ids_matchedfeats_dict = pickle.load(f)
 
-    test = []
-
-    ids_file = "new_filtered_ids_" + str(num_tables) + ".txt"
-
-    with open(ids_file, 'rb') as f:
-        test = pickle.load(f)
-
-    new_filtered_ids = []
-    for u in test:
-        # print(u)
-        try:
-            asdf = ids_matchedfeats_dict[u]
-            new_filtered_ids.append(u)
-        except:
-            pass
 
     if feats_subset == None:
-        parsed_file = "full_parsed_" + str(num_tables) + ".txt"
-        feats_subset = test[0]
+        with open("ids_matchedfeats.txt", 'rb') as f:
+            ids_matchedfeats_dict = pickle.load(f)
+
+        test = []
+
+
+        ids_file = "new_filtered_ids_" + str(num_tables) + ".txt"
+
+        with open(ids_file, 'rb') as f:
+            test = pickle.load(f)
+
+        new_filtered_ids = []
+        for u in test:
+            # print(u)
+            try:
+                asdf = ids_matchedfeats_dict[u]
+                new_filtered_ids.append(u)
+            except:
+                pass
+
+            parsed_file = "full_parsed_" + str(num_tables) + ".txt"
+            feats_subset = test[0]
+
+        filtered_ids = new_filtered_ids[1:]
+
+    filtered_ids = get_filtered_ids()
 
     full_parsed = {}
     count = 0
-    for u in new_filtered_ids[1:]:
+    for u in filtered_ids:
         ulog_path = os.path.join(ulog_folder, u + ".ulg")
 
         dfs, names = convert_to_dfs_ulog(ulog_path)
-        feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
 
-        full_parsed[u] = feature_dict
+        if len(set(names).intersection(feats_subset)) == len(feats_subset):
+            feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
 
-        print("Feature selected: " + str(count) + "/" + str(len(new_filtered_ids)))
+            full_parsed[u] = feature_dict
+            # print(feats_subset)
+            # print(names)
+            # print(feature_dict.keys())
+
+        print("Feature selected: " + str(count) + "/" + str(len(filtered_ids)))
         count += 1
 
     parsed_file = "full_parsed_" + str(num_tables) + "_" + parse_id + ".txt"
@@ -437,13 +500,13 @@ def feature_select(parse_id="", feats_subset=None, num_tables=7):
     return full_parsed
 
 
-def preprocess_data():
+def preprocess_data(saved_parse, X_file, y_file):
     json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
     with open(json_file, 'r') as inputFile:
         meta_json = json.load(inputFile)
     indexable_meta = get_indexable_meta(meta_json)
 
-    with open("full_parsed_7.txt", 'rb') as f:
+    with open(saved_parse, 'rb') as f:
         full_parsed = pickle.load(f)
 
 
@@ -452,21 +515,22 @@ def preprocess_data():
 
     y = get_labels(list(full_parsed_split.keys()), indexable_meta)
 
+    print(Counter(y))
+
     X = timestamp_bin(full_parsed_split)
 
-    X_data_file = "X_data_7.txt"
-    with open(X_data_file, 'wb') as f:
+
+    with open(X_file, 'wb') as f:
         pickle.dump(X, f)
 
 
-    Y_data_file = "Y_data_7.txt"
-    with open(Y_data_file, 'wb') as f:
+    with open(y_file, 'wb') as f:
         pickle.dump(y, f)
 
     return X, y
 
 
-def get_stored_data(num_tables, num_t_ints=50, percentage=100):
+def get_stored_data(num_tables, num_t_ints=50, percentage=100, beg_mid_end="", X_path="", Y_path=""):
     if num_t_ints != 50:
         X_data_file = "X_data_" + str(num_tables) + "_" + str(num_t_ints) + "_ints.txt"
 
@@ -476,8 +540,22 @@ def get_stored_data(num_tables, num_t_ints=50, percentage=100):
         with open(X_data_file, 'rb') as f:
             X = pickle.load(f)   
         
-        return X      
+        return X  
+    elif beg_mid_end != "":
+        X_data_file = "X_data_" + str(num_tables) + "_" + beg_mid_end + ".txt"
 
+        with open(X_data_file, 'rb') as f:
+            X = pickle.load(f)   
+        
+        return X  
+    elif X_path != "" and Y_path != "":
+        with open(X_path, 'rb') as f:
+            X = pickle.load(f)   
+
+        with open(Y_path, 'rb') as f:
+            y = pickle.load(f)   
+
+        return X, y
     else:
         X_data_file = "formatted_data/X_data_" + str(num_tables) + ".txt"
 
@@ -488,7 +566,6 @@ def get_stored_data(num_tables, num_t_ints=50, percentage=100):
 
     with open(X_data_file, 'rb') as f:
         X = pickle.load(f) 
-
 
     with open(Y_data_file, 'rb') as f:
         y = pickle.load(f) 
@@ -522,18 +599,16 @@ def get_augmented_data(X, y, augment_percent=None):
         
     if augment_percent == None:
         scale = round(len(X_quad)/len(X_fixed))
+        my_augmenter = (TimeWarp() * scale + Quantize(n_levels=[10, 20, 30]) + Drift(max_drift=(0.1, 0.5)) @ 0.8 + Reverse() @ 0.5) 
+        X_fixed_aug = my_augmenter.augment(np.array(X_fixed)).tolist()
+        y_fixed_aug = [1 for i in range(len(X_fixed_aug))]
     else:
         scale = 1
+        my_augmenter = (TimeWarp() * scale + Quantize(n_levels=[10, 20, 30]) + Drift(max_drift=(0.1, 0.5)) @ 0.8 + Reverse() @ 0.5) 
+        num_additional_instances = round(len(y_fixed) * augment_percent)
+        X_fixed_aug = my_augmenter.augment(np.array(X_fixed)).tolist()[:num_additional_instances]
+        y_fixed_aug = [1 for i in range(num_additional_instances)]
 
-    my_augmenter = (TimeWarp() * scale + Quantize(n_levels=[10, 20, 30]) + Drift(max_drift=(0.1, 0.5)) @ 0.8 + Reverse() @ 0.5) 
-
-    num_additional_instances = round(len(y_fixed) * augment_percent)
-    X_fixed_aug = my_augmenter.augment(np.array(X_fixed)).tolist()[:num_additional_instances]
-    y_fixed_aug = [1 for i in range(num_additional_instances)]
-    # for inst in num_additional_instances:
-    #     y_fixed_aug += [1 for i in range(scale)]
-
-    # print(len(y_fixed_aug))    
 
     X_aug = X_fixed_aug + X_fixed + X_quad
     y_aug = y_fixed_aug + y_fixed + y_quad
@@ -565,18 +640,21 @@ def feature_index(num_tables, indices):
 
     return new_X.tolist()
 
-def standardize_data(X_train, X_test, independent=False):
+def standardize_data(X_train, X_test, scaler_type="standard", independent=False):
+    if scaler_type == "standard":
+        scaler = StandardScaler()
+    elif scaler_type == "min_max":
+        scaler = MinMaxScaler()
+
     if independent:
         for i in range(X_train.shape[0]):
             X_train_inst = X_train[i]
-            scaler = StandardScaler()
             scaler = scaler.fit(X_train_inst)
             X_train_inst = scaler.transform(X_train_inst)
             X_train[i] = X_train_inst
 
         for i in range(X_test.shape[0]):
             X_test_inst = X_test[i]
-            scaler = StandardScaler()
             scaler = scaler.fit(X_test_inst)
             X_test_inst = scaler.transform(X_test_inst)
             X_test[i] = X_test_inst
@@ -589,7 +667,6 @@ def standardize_data(X_train, X_test, independent=False):
         num_features_test = X_test.shape[1]
         num_times_test = X_test.shape[2]
 
-        scaler = StandardScaler()
         scaler = scaler.fit(X_train.reshape(num_instances * num_times, num_features))
         X_train = scaler.transform(X_train.reshape(num_instances * num_times, num_features))
         X_test = scaler.transform(X_test.reshape(num_instances_test * num_times_test, num_features_test))
@@ -599,8 +676,16 @@ def standardize_data(X_train, X_test, independent=False):
 
     return X_train, X_test
 
-def random_oversample(X, y, sample_ratio):
-    sampler = RandomOverSampler(random_state=0, sampling_strategy=sample_ratio)
+def apply_sampling(X, y, sample_method, sample_ratio):
+    if sample_method == "ros":
+        sampler = RandomOverSampler(random_state=0, sampling_strategy=sample_ratio)
+    elif sample_method == "rus":
+        sampler = RandomUnderSampler(random_state=0, sampling_strategy=sample_ratio)
+    elif sample_method == "nn":
+        sampler = CondensedNearestNeighbour(random_state=0)
+    elif sample_method == "smote":
+        sampler = SMOTE(random_state=0)
+
     X_np = np.array(X)
 
     num_instances = X_np.shape[0]
@@ -614,6 +699,8 @@ def random_oversample(X, y, sample_ratio):
     X_resampled = X_resampled.reshape(X_resampled.shape[0], num_features, num_times).tolist()
 
     return X_resampled, y_resampled
+
+
 
 def main():
     X, y = preprocess_data()
