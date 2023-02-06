@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 import data_processing as dp
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix, adjusted_mutual_info_score, roc_auc_score
+from sklearn.metrics import classification_report, confusion_matrix, adjusted_mutual_info_score, roc_auc_score, f1_score
 import pickle
 from collections import Counter
 import argparse
@@ -21,7 +21,6 @@ import csv
 import random
 import numpy as np
 
-
 # Seed
 seed = 123
 torch.manual_seed(seed)
@@ -31,6 +30,15 @@ np.random.seed(seed)
 random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
+
+
+with open("full_parsed_7_multi.txt", "rb") as f:
+	full_parsed_split = dp.split_features(pickle.load(f))
+	temp_ids = list(full_parsed_split.keys())
+print(len(temp_ids))
+temp_mapping = {}
+
+
 
 
 class UAVDataset(Dataset):
@@ -104,7 +112,8 @@ class LSTM(nn.Module):
 		# print(out.shape)
 		return out
 
-def train(model, train_loader, test_loader, params, verbose=True):
+def train(model, train_loader, test_loader, params, verbose=True, target_names=['Quadrotor', 'Fixed Wing'], test_index=None):
+	print(len(temp_ids))
 	'''
 	Trains the LSTM 
 
@@ -152,11 +161,10 @@ def train(model, train_loader, test_loader, params, verbose=True):
 
 					# print(predictions.shape)
 					loss = criterion(predictions, targets.long())
-					# print(loss.item())
 
 					if phase == "train":
 						loss.backward()
-						torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0, norm_type=2)
+						# torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0, norm_type=2)
 						optimizer.step()
 
 				out, max_indices = torch.max(predictions, dim=1)
@@ -174,19 +182,33 @@ def train(model, train_loader, test_loader, params, verbose=True):
 
 		if phase == "eval" and (epoch + 1) % params["num_epochs"]/4 == 0 :
 			counts = Counter(y_pred)
-			report = classification_report(y_true, y_pred, target_names=['Quadrotor', 'Fixed Wing'], output_dict=True)
-			auc_score = roc_auc_score(y_true, y_pred)
+			report = classification_report(y_true, y_pred, target_names=target_names, output_dict=True)
+			auc_score = 0
+			# auc_score = roc_auc_score(y_true, y_pred, multi_class='ovo')
+			macro_f1 = f1_score(y_true, y_pred, average='macro')
 
 			if verbose:
 				print(counts)
-				print(classification_report(y_true, y_pred, target_names=['Quadrotor', 'Fixed Wing']))
+				print(classification_report(y_true, y_pred, target_names=target_names))
 				print(auc_score)
 
 
 		if phase == "eval" and epoch == params["num_epochs"] - 1:
 			pred_from_last_epoch = y_pred
 
-	return pred_from_last_epoch, report, auc_score, counts, model
+	print(len(test_index))
+	print(len(y_true))
+	print(len(y_pred))
+
+	count = 0
+	for ind in test_index:
+		temp_mapping[temp_ids[ind]] = {"Actual": y_true[count], "Predicted": y_pred[count]}
+		count += 1
+
+	print(temp_mapping)
+	print(confusion_matrix(y_true, y_pred, labels=[0, 1, 2]))
+
+	return pred_from_last_epoch, report, auc_score, macro_f1, counts, model
 
 def get_dataloaders(X_train, y_train, X_test, y_test):
 	# Form datasets and dataloaders
@@ -204,7 +226,6 @@ def get_dataloaders(X_train, y_train, X_test, y_test):
 
 def get_model(input_size, hidden_size = 128, num_classes=2, num_layers=1):
 	hidden_size = 128
-	num_classes = 2
 	num_layers = 1
 	model = LSTM(input_size=input_size,
 				 hidden_size=hidden_size,
@@ -363,8 +384,7 @@ def main():
 
 	# oversampling and undersampling
 	parser.add_argument("-sample", "--sample_method", type=str, help="[ros, rus, nn, smote]")
-	parser.add_argument('-ros_r','--ros_ratio', type=float, help='random oversampling ratio')
-	parser.add_argument('-rus_r','--rus_ratio', type=float, help='random undersampling ratio')
+	parser.add_argument('-r','--ratio', type=int, nargs='+', help='oversampling or undersampling ratio')
 
 	parser.add_argument('-csv','--csv', type=str, help='csv file name output')
 
@@ -385,15 +405,17 @@ def main():
 	print(args.X_path)
 	if args.X_path != None and args.Y_path != None:
 		X, y = dp.get_stored_data(args.n_tables, X_path=args.X_path, Y_path=args.Y_path)
-	if args.indices != None:
+	elif args.indices != None:
 		X = dp.feature_index(args.n_tables, list(map(int, args.indices)))
-	if args.sample_method == "rus_full":
+	elif args.sample_method == "rus_full":
 		sample_ratio = args.rus_ratio/100
+		X, y = dp.get_stored_data(args.n_tables, num_t_ints=args.intervals)
 		X, y = dp.apply_sampling(X, y, sample_method="rus", sample_ratio=sample_ratio)
-	if args.X_path == None and args.Y_path == None and args.indices == None and args.sample_method == None:
+	else:
 		X, y = dp.get_stored_data(args.n_tables, num_t_ints=args.intervals)
 
 
+	print(np.array(X).shape)
 	print("------------------------------------ Parameters ------------------------------------")
 	print("Description: " + args.description)
 	print("Test percentage: {}".format(args.test_size))
@@ -404,7 +426,7 @@ def main():
 	print("Number of features: " + str(len(X[0])))
 	print("Number of timestamp intervals: " + str(len(X[0][0])))
 
-
+	print(args.csv)
 	if args.csv != None:
 		# if os.path.exists(args.csv):
 		#     os.remove(args.csv)
@@ -464,10 +486,12 @@ def main():
 
 		report_stack = []
 		auc_stack = []
+		macro_f1_stack = []
 
 		for train_index, test_index in splits:
 			X_train, X_test = np.array(X)[train_index], np.array(X)[test_index]
 			y_train, y_test = np.array(y)[train_index], np.array(y)[test_index]
+
 
 			if args.beg_mid_end != None:
 				X = dp.get_stored_data(args.n_tables, beg_mid_end=args.beg_mid_end)
@@ -478,23 +502,19 @@ def main():
 				X_test = np.array(X)[test_index]
 
 			if args.augment != None:
+				print(X_train.shape)
 				if args.transfer_learning == None:
 					X_train, y_train = dp.get_augmented_data(X_train, y_train, augment_percent=args.augment/100)
 				else:
 					X_train, y_train = dp.get_augmented_data(X_train, y_train)
+
 				X_train = np.array(X_train)
 				y_train = np.array(y_train)
 				print(X_train.shape)
 
 			if args.sample_method in ["ros", "rus", "smote", "nn"]:
-				sample_ratio = 0
-
-				if args.sample_method == "ros":
-					sample_ratio = args.ros_ratio/100
-				elif args.sample_method == "rus":
-					sample_ratio = args.rus_ratio/100
-
-				X_train, y_train = dp.apply_sampling(X_train, y_train, sample_method=args.sample_method, sample_ratio=sample_ratio)
+			
+				X_train, y_train = dp.apply_sampling(X_train, y_train, sample_method=args.sample_method, sample_ratio=args.ratio)
 				X_train = np.array(X_train)
 				y_train = np.array(y_train)
 
@@ -506,7 +526,7 @@ def main():
 
 			# Form model
 			input_size = X_train.shape[2]
-			model = get_model(input_size)
+			model = get_model(input_size, num_classes=3)
 			
 			# Assign training params
 			params = {"lr": args.learning_rate, "num_epochs":args.n_epochs}
@@ -517,7 +537,7 @@ def main():
 
 			if args.transfer_learning != None:
 				# Train and save model on data augmented set
-				_, _, _, _, model = train(model, train_loader, test_loader, params, verbose=False)
+				_, _, _, _, _, model = train(model, train_loader, test_loader, params, verbose=False)
 
 				# Get unaugmented data
 				X_train, X_test = np.array(X)[train_index], np.array(X)[test_index]
@@ -526,10 +546,9 @@ def main():
 				train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test)		
 
 				# Finetune pretrained model on unaugmented data
-				_, report, auc_score, counts, _ = train(model, train_loader, test_loader, params)
+				_, report, auc_score, macro_f1, counts, _ = train(model, train_loader, test_loader, params)
 			else:
-				_, report, auc_score, counts, _ = train(model, train_loader, test_loader, params)
-
+				_, report, auc_score, macro_f1, counts, _ = train(model, train_loader, test_loader, params, target_names=["Quadrotor", "Fixed Wing", "Hexarotor"], test_index=test_index)
 
 
 			if args.csv != None:
@@ -538,70 +557,58 @@ def main():
 					csv_writer = csv.writer(csvfile)
 					csv_writer.writerow(["\n"])            
 					csv_writer.writerow(["Fold : " + str(fold)])
-					csv_writer.writerow(["", "Quadrotor", "Fixed Wing"])
-					csv_writer.writerow(["Precision", round(report["Quadrotor"]["precision"], 4), round(report["Fixed Wing"]["precision"], 4)])
-					csv_writer.writerow(["Recall", round(report["Quadrotor"]["recall"], 4), round(report["Fixed Wing"]["recall"], 4)])
-					csv_writer.writerow(["F-score", round(report["Quadrotor"]["f1-score"], 4), round(report["Fixed Wing"]["f1-score"], 4)])
-					csv_writer.writerow(["AUROC Score", round(auc_score, 4)])
-					csv_writer.writerow(["True Counts", report["Quadrotor"]["support"], report["Fixed Wing"]["support"]])
-					csv_writer.writerow(["Pred Counts", counts[0], counts[1]])
+					csv_writer.writerow(["", "Quadrotor", "Fixed Wing", "Hexarotor"])
+					csv_writer.writerow(["Precision", round(report["Quadrotor"]["precision"], 4), round(report["Fixed Wing"]["precision"], 4), round(report["Hexarotor"]["precision"], 4)])
+					csv_writer.writerow(["Recall", round(report["Quadrotor"]["recall"], 4), round(report["Fixed Wing"]["recall"], 4), round(report["Hexarotor"]["recall"], 4)])
+					csv_writer.writerow(["F-score", round(report["Quadrotor"]["f1-score"], 4), round(report["Fixed Wing"]["f1-score"], 4), round(report["Hexarotor"]["f1-score"], 4)])
+					# csv_writer.writerow(["AUROC Score", round(auc_score, 4)])
+					csv_writer.writerow(["Macro F1 Score", round(macro_f1, 4)])
+					csv_writer.writerow(["True Counts", report["Quadrotor"]["support"], report["Fixed Wing"]["support"], report["Hexarotor"]["support"]])
+					csv_writer.writerow(["Pred Counts", counts[0], counts[1], counts[2]])
 
 
 
-				report_stack.append([[report["Quadrotor"]["precision"], report["Fixed Wing"]["precision"]],
-								 [report["Quadrotor"]["recall"], report["Fixed Wing"]["recall"]], 
-								 [report["Quadrotor"]["f1-score"], report["Fixed Wing"]["f1-score"]]])
+				report_stack.append([[report["Quadrotor"]["precision"], report["Fixed Wing"]["precision"], report["Hexarotor"]["precision"]],
+								 [report["Quadrotor"]["recall"], report["Fixed Wing"]["recall"], report["Hexarotor"]["recall"]], 
+								 [report["Quadrotor"]["f1-score"], report["Fixed Wing"]["f1-score"], report["Hexarotor"]["f1-score"]]])
 
-				auc_stack.append(auc_score)
+				# auc_stack.append(auc_score)
+				macro_f1_stack.append(macro_f1)
 
 			fold += 1
 
 
+		with open("temp_mapping.txt", "wb") as f:
+			pickle.dump(temp_mapping, f)
+
 		if args.csv != None:
 			means = np.mean(np.array(report_stack), axis=0)
 			stds = np.std(np.array(report_stack), axis=0)
-			auc_mean = np.mean(np.array(auc_stack))
-			auc_std = np.std(np.array(auc_stack))
+			# auc_mean = np.mean(np.array(auc_stack))
+			# auc_std = np.std(np.array(auc_stack))
+			macro_mean = np.mean(np.array(macro_f1_stack))
+			macro_std = np.std(np.array(macro_f1_stack))
 
 			with open(file_name, 'a', newline='') as csvfile:
 				csv_writer = csv.writer(csvfile)
 				csv_writer.writerow(["\n"]) 
 				csv_writer.writerow(["Averages"])           
-				csv_writer.writerow(["", "Quadrotor", "Fixed Wing"])
-				csv_writer.writerow(["Precision", round(means[0][0], 4), round(means[0][1], 4)])
-				csv_writer.writerow(["Recall", round(means[1][0], 4), round(means[1][1], 4)])
-				csv_writer.writerow(["F-score", round(means[2][0], 4), round(means[2][1], 4)])
-				csv_writer.writerow(["AUROC Score", round(auc_mean, 4)])
+				csv_writer.writerow(["", "Quadrotor", "Fixed Wing", "Hexarotor"])
+				csv_writer.writerow(["Precision", round(means[0][0], 4), round(means[0][1], 4), round(means[0][2], 4)])
+				csv_writer.writerow(["Recall", round(means[1][0], 4), round(means[1][1], 4), round(means[1][2], 4)])
+				csv_writer.writerow(["F-score", round(means[2][0], 4), round(means[2][1], 4), round(means[2][2], 4)])
+				# csv_writer.writerow(["AUROC Score", round(auc_mean, 4)])
+				csv_writer.writerow(["Macro F1 Score", round(macro_mean, 4)])
 
 				csv_writer.writerow(["\n"]) 
 				csv_writer.writerow(["Standard Deviations"])           
-				csv_writer.writerow(["", "Quadrotor", "Fixed Wing"])
-				csv_writer.writerow(["Precision", round(stds[0][0], 4), round(stds[0][1], 4)])
-				csv_writer.writerow(["Recall", round(stds[1][0], 4), round(stds[1][1], 4)])
-				csv_writer.writerow(["F-score", round(stds[2][0], 4), round(stds[2][1], 4)])
-				csv_writer.writerow(["AUROC Score", round(auc_std, 4)])
+				csv_writer.writerow(["", "Quadrotor", "Fixed Wing", "Hexarotor"])
+				csv_writer.writerow(["Precision", round(stds[0][0], 4), round(stds[0][1], 4), round(means[0][2], 4)])
+				csv_writer.writerow(["Recall", round(stds[1][0], 4), round(stds[1][1], 4), round(means[1][2], 4)])
+				csv_writer.writerow(["F-score", round(stds[2][0], 4), round(stds[2][1], 4), round(means[2][2], 4)])
+				# csv_writer.writerow(["AUROC Score", round(auc_std, 4)])
+				csv_writer.writerow(["Macro F1 Score", round(macro_std, 4)])
 
-	# ADDITIONAL EXPERIMENTS
-
-	# Feature selection experiment
-	# feature_selection_experiment()
-
-
-	# Guess comparison experiment
-	# y_pred = [0 for i in range(len(y_test))]
-
-	# values = [0 for i in range(20)]
-	# values[19] = 1
-	# y_pred = []
-	# for i in range(len(y_test)):
-	# 	guess = random.randint(0, 19)
-	# 	y_pred.append(values[guess])
-
-	# print(y_pred)
-
-
-
-	# print(classification_report(y_test, y_pred, target_names=['Quadrotor', 'Fixed Wing']))
 
 
 if __name__ == "__main__":

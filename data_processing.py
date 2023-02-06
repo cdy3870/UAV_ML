@@ -17,7 +17,9 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import random
 import copy
 from imblearn.over_sampling import RandomOverSampler, SMOTE
-from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour
+from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, ClusterCentroids
+
+work_dir = "../../../work/uav-ml/"
 
 ################################################## FEATURE EXTRACTION/SELECTION ########################################################
 
@@ -52,8 +54,24 @@ feat_list = [
     
             {"desc": "sys | throttle", "table name": ["manual_control_setpoint"], "feat(s) name(s)": "throttle", "feat(s)": ["z"]}]
 
+
+def get_indexable_meta(meta_json):
+    indexable_meta = {}
+
+    for m in meta_json:
+        temp_id = m["id"]
+        m.pop("id")
+        indexable_meta[temp_id] = m
+        
+    return indexable_meta
+
 ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
+ulog_folder_hex = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloadedHex"
+
 json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
+with open(json_file, 'r') as inputFile:
+    meta_json = json.load(inputFile)
+indexable_meta = get_indexable_meta(meta_json)
 
 def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_name, cols):
     spec_df = []
@@ -69,12 +87,13 @@ def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_nam
         # table not found
         if table_name[0] not in dfs.keys():
             return
+
         spec_df = dfs[table_name[0]] 
         
         # if specific feature not found
         if cols[0] not in list(spec_df[0].columns):
             return
-    
+
     # for d in spec_df:
     if table_name[0] not in feature_dict:
         feature_dict[feature_name] = [spec_df[0][["timestamp"] + cols]]
@@ -94,6 +113,19 @@ def look_for_feature(dfs, features):
             
                 
     return found_feature
+
+def extract_individual(dfs, feats_subset):
+    feature_dict = {}
+    for feat in feats_subset:
+        # print(feat)
+        strings = feat.split(" ")
+        table_name = strings[0]
+        feat_name = strings[2]
+
+        feature_dict[feat] = [dfs[table_name][0][["timestamp"] + [feat_name]]]
+
+
+    return feature_dict
             
 def extract_from_tables(dfs, parsed_names, feats_subset=None):
     feature_dict = {}
@@ -107,6 +139,7 @@ def extract_from_tables(dfs, parsed_names, feats_subset=None):
                 if f in feats_subset:
                     update_feature_dict(dfs, parsed_names, feature_dict, feats["table name"], feats["feat(s) name(s)"], feats["feat(s)"])
                     break
+
 
     return feature_dict
 
@@ -127,28 +160,33 @@ def duration_to_mill(str):
             
     return round(total_minutes, 2)
 
+def get_distribution(ids):
+    types = []
 
-def get_indexable_meta(meta_json):
-    indexable_meta = {}
+    for u in ids:
+        types.append(indexable_meta[u]["type"])
 
-    for m in meta_json:
-        temp_id = m["id"]
-        m.pop("id")
-        indexable_meta[temp_id] = m
-        
-    return indexable_meta
+    print(Counter(types))
+
+    return Counter(types)
 
 
 def get_filtered_ids():
-    with open(json_file, 'r') as inputFile:
-        meta_json = json.load(inputFile)
-    indexable_meta = get_indexable_meta(meta_json)
+    # with open(json_file, 'r') as inputFile:
+    #     meta_json = json.load(inputFile)
+    # indexable_meta = get_indexable_meta(meta_json)
 
     ulogs_downloaded = os.listdir(ulog_folder)
-    drone_ids = [u[:-4] for u in ulogs_downloaded
-                if indexable_meta[u[:-4]]["type"] == "Quadrotor" or indexable_meta[u[:-4]]["type"] == "Fixed Wing"]
+    ulogs_downloaded_hex = os.listdir(ulog_folder_hex)
+
+
+    ulogs_downloaded = ulogs_downloaded_hex + ulogs_downloaded 
+
+
+    drone_ids = [u[:-4] for u in ulogs_downloaded]
 
     filtered_ids = [u for u in drone_ids if indexable_meta[u]["duration"] != "0:00:00"]
+
             
     return filtered_ids
 
@@ -167,15 +205,17 @@ def convert_to_dfs_csv(csv_path, only_names=False):
             if temp[len(temp) - 1].isdigit():
                 temp = temp[:-2]
                 
-            # print(temp)
             
             if not only_names:
                 if temp not in dfs:
                     dfs[temp] = [pd.read_csv(os.path.join(csv_path, d))]
                 else:                    
                     dfs[temp].append(pd.read_csv(os.path.join(csv_path, d)))
+
                 
             names.append(temp)
+
+        # print(dfs)
             
     return dfs, names
 
@@ -298,7 +338,7 @@ def split_features(full_parsed):
 def get_labels(ids, indexable_meta, label_name="type"):
 
     if label_name == "type":
-        encode_dict = {"Quadrotor": 0, "Fixed Wing": 1}
+        encode_dict = {"Quadrotor": 0, "Fixed Wing": 1, "Hexarotor": 2}
         labels = [encode_dict[indexable_meta[id]["type"]] for id in ids]
     elif label_name == "flightMode":
         # all mission flights were manual: Counter({1: 12284})
@@ -309,7 +349,8 @@ def get_labels(ids, indexable_meta, label_name="type"):
 
 def get_mins_maxes(full_parsed):
     mins_maxes = {}
-    num_t_ints = 50
+
+
     for key, value in full_parsed.items():
         ulog_max = 0
         ulog_min = float('inf')
@@ -321,11 +362,30 @@ def get_mins_maxes(full_parsed):
                 ulog_min = min
             if max > ulog_max:
                 ulog_max = max
-        # print(ulog_min)
-        # print(ulog_max)
-        # print("\n")
 
         mins_maxes[key] = [ulog_min, ulog_max]
+
+    # with open(work_dir + "new_durations.txt", "rb") as f:
+    #     durations = pickle.load(f)
+
+    # for key, value in full_parsed.items():
+    #     if durations[key] != "parsing error":
+    #         ulog_min = durations[key][0]
+    #         ulog_max = durations[key][1]
+
+    #     else:
+    #         ulog_max = 0
+    #         ulog_min = float('inf')
+    #         for key_2, value_2 in full_parsed[key].items():
+    #             min = full_parsed[key][key_2][0]["timestamp"].min()
+    #             max = full_parsed[key][key_2][0]["timestamp"].max()
+                
+    #             if min < ulog_min:
+    #                 ulog_min = min
+    #             if max > ulog_max:
+    #                 ulog_max = max
+
+    #     mins_maxes[key] = [ulog_min, ulog_max]
 
     return mins_maxes
 
@@ -443,7 +503,97 @@ def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50, beg_mid_end=N
 
     return X
 
-def feature_select(parse_id="", feats_subset=None, num_tables=7):
+def get_desired_distribution(full_parsed_split, ids, total_quads=None, total_fixed=None, total_hex=None):
+    distribution = get_distribution(ids)
+
+    new_parsed = {}
+    new_y = []
+
+    if total_quads == None and total_fixed == None and total_hex == None:  
+        total_quads = 1000
+        total_fixed = distribution["Fixed Wing"]
+        total_hex = distribution["Hexarotor"]
+    else:
+        total_quads = min(total_quads, distribution["Quadrotor"])
+        total_fixed = min(total_fixed, distribution["Fixed Wing"])
+        total_hex = min(total_hex, distribution["Hexarotor"])
+
+
+    quad_count = 0
+    fixed_count = 0
+    hex_count = 0
+    keys = []
+
+    for key in full_parsed_split.keys():
+        type = indexable_meta[key]["type"]
+        if type == "Quadrotor":
+            if quad_count < total_quads:
+                new_parsed[key] = full_parsed_split[key]
+                new_y.append(0)
+                keys.append(key)    
+            quad_count += 1
+
+        elif type == "Fixed Wing":
+            if fixed_count < total_fixed:
+                new_parsed[key] = full_parsed_split[key]
+                new_y.append(1)
+                keys.append(key)    
+            fixed_count += 1
+
+        else:
+            if hex_count < total_hex:
+                new_parsed[key] = full_parsed_split[key]
+                new_y.append(2)
+                keys.append(key)    
+            hex_count += 1      
+
+
+
+        if quad_count == total_quads and fixed_count == total_fixed and hex_count == total_hex:
+            break
+
+    return new_parsed, keys
+
+def feature_select(parse_id="", feats_subset=None):
+    filtered_ids = get_filtered_ids()
+    full_parsed = {}
+    count = 0
+
+
+    _, keys = get_desired_distribution({key:{} for key in filtered_ids}, filtered_ids, 1000, 500, 500)
+
+    print(len(keys))
+
+    for u in keys:
+        if indexable_meta[u]["type"] == "Hexarotor":
+            ulog_path = os.path.join(ulog_folder_hex, u + ".ulg")
+        else:
+            ulog_path = os.path.join(ulog_folder, u + ".ulg")
+
+        dfs, names = convert_to_dfs_ulog(ulog_path)
+
+
+        try:
+            feature_dict = extract_individual(dfs, feats_subset=feats_subset)
+            full_parsed[u] = feature_dict
+
+            print("Feature selected: " + str(count))
+            distribution = get_distribution(list(full_parsed.keys()))
+            print(distribution)
+
+            count += 1
+        except:
+            continue
+
+
+
+    parsed_file = "full_parsed_" + parse_id + ".txt"
+    with open(parsed_file, 'wb') as f:
+        pickle.dump(full_parsed, f)
+
+    return full_parsed
+
+def feature_select_from_paper(parse_id="", feats_subset=None, num_tables=7):
     print("Feature Selecting")
 
 
@@ -471,14 +621,18 @@ def feature_select(parse_id="", feats_subset=None, num_tables=7):
             parsed_file = "full_parsed_" + str(num_tables) + ".txt"
             feats_subset = test[0]
 
-        filtered_ids = new_filtered_ids[1:]
+    print(feats_subset)
+
 
     filtered_ids = get_filtered_ids()
 
     full_parsed = {}
     count = 0
     for u in filtered_ids:
-        ulog_path = os.path.join(ulog_folder, u + ".ulg")
+        if indexable_meta[u]["type"] == "Hexarotor":
+            ulog_path = os.path.join(ulog_folder_hex, u + ".ulg")
+        else:
+            ulog_path = os.path.join(ulog_folder, u + ".ulg")
 
         dfs, names = convert_to_dfs_ulog(ulog_path)
 
@@ -500,24 +654,21 @@ def feature_select(parse_id="", feats_subset=None, num_tables=7):
     return full_parsed
 
 
-def preprocess_data(saved_parse, X_file, y_file):
-    json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
-    with open(json_file, 'r') as inputFile:
-        meta_json = json.load(inputFile)
-    indexable_meta = get_indexable_meta(meta_json)
+def preprocess_data(X_file, y_file, saved_parse=None, parse_id="", feats_subset=None):
+    if saved_parse != None:
+        with open(saved_parse, 'rb') as f:
+            full_parsed = pickle.load(f)
+    else:
+        full_parsed = feature_select(parse_id=parse_id, feats_subset=feats_subset)
 
-    with open(saved_parse, 'rb') as f:
-        full_parsed = pickle.load(f)
+    # full_parsed_split = split_features(full_parsed)
 
+    y = get_labels(list(full_parsed.keys()), indexable_meta)
 
-    # full_parsed = feature_select(num_tables=8)
-    full_parsed_split = split_features(full_parsed)
+    # print(Counter(y))
+    # full_parsed = dict(list(full_parsed.items())[:10]) 
 
-    y = get_labels(list(full_parsed_split.keys()), indexable_meta)
-
-    print(Counter(y))
-
-    X = timestamp_bin(full_parsed_split)
+    X = timestamp_bin(full_parsed)
 
 
     with open(X_file, 'wb') as f:
@@ -527,7 +678,9 @@ def preprocess_data(saved_parse, X_file, y_file):
     with open(y_file, 'wb') as f:
         pickle.dump(y, f)
 
+
     return X, y
+
 
 
 def get_stored_data(num_tables, num_t_ints=50, percentage=100, beg_mid_end="", X_path="", Y_path=""):
@@ -586,52 +739,47 @@ def get_augmented_data(X, y, augment_percent=None):
     X_fixed = []
     y_quad = []
     y_fixed = []
+    X_hex = []
+    y_hex = []
 
     for i in range(len(X)):
         if y[i] == 1:
             y_fixed.append(1)
             X_fixed.append(X[i])
-        else:
+        elif y[i] == 0:
             y_quad.append(0)
             X_quad.append(X[i])
+        else:
+            y_hex.append(2)
+            X_hex.append(X[i])
+
 
     # print(len(y_fixed))
-        
+    # print(len(y_hex))
+
     if augment_percent == None:
         scale = round(len(X_quad)/len(X_fixed))
         my_augmenter = (TimeWarp() * scale + Quantize(n_levels=[10, 20, 30]) + Drift(max_drift=(0.1, 0.5)) @ 0.8 + Reverse() @ 0.5) 
         X_fixed_aug = my_augmenter.augment(np.array(X_fixed)).tolist()
         y_fixed_aug = [1 for i in range(len(X_fixed_aug))]
     else:
-        scale = 1
+        scale = 5
         my_augmenter = (TimeWarp() * scale + Quantize(n_levels=[10, 20, 30]) + Drift(max_drift=(0.1, 0.5)) @ 0.8 + Reverse() @ 0.5) 
         num_additional_instances = round(len(y_fixed) * augment_percent)
         X_fixed_aug = my_augmenter.augment(np.array(X_fixed)).tolist()[:num_additional_instances]
         y_fixed_aug = [1 for i in range(num_additional_instances)]
 
+        num_additional_instances = round(len(y_hex) * augment_percent)
+        X_hex_aug = my_augmenter.augment(np.array(X_hex)).tolist()[:num_additional_instances]
+        y_hex_aug = [2 for i in range(num_additional_instances)]
 
-    X_aug = X_fixed_aug + X_fixed + X_quad
-    y_aug = y_fixed_aug + y_fixed + y_quad
+    X_aug = X_fixed_aug + X_hex_aug + X_fixed + X_quad + X_hex
+    y_aug = y_fixed_aug + y_hex_aug + y_fixed + y_quad + y_hex
+
+    # print(len(X_fixed_aug))
+    # print(len(X_hex_aug))
 
     return X_aug, y_aug
-
-# def shorten_data(X, num_tables, percent):
-
-#     num_t_ints = 50
-#     shortened_t_ints = round(num_t_ints * percent)
-#     available_t_ints = num_t_ints - shortened_t_ints
-#     new_X = np.array(X)
-
-#     for i in range(len(X)):
-#         rand_start = random.randint(0, available_t_ints)
-#         indices = [i for i in range(rand_start, rand_start + shortened_t_ints)]
-
-#         other_indices = [i for i in range(num_t_ints) if i not in indices]
-
-#         new_X[i, :, other_indices] = 0
-#         # print(new_X.shape)
-
-#     return new_X.tolist()
 
 def feature_index(num_tables, indices):
     X, _ = get_stored_data(num_tables)
@@ -677,14 +825,19 @@ def standardize_data(X_train, X_test, scaler_type="standard", independent=False)
     return X_train, X_test
 
 def apply_sampling(X, y, sample_method, sample_ratio):
+    ratio_dict = {}
+    distribution = Counter(y)
+    for i in range(len(sample_ratio)):
+        ratio_dict[i] = int(distribution[i] * (sample_ratio[i]/100))
+
     if sample_method == "ros":
-        sampler = RandomOverSampler(random_state=0, sampling_strategy=sample_ratio)
+        sampler = RandomOverSampler(random_state=0, sampling_strategy=ratio_dict)
     elif sample_method == "rus":
-        sampler = RandomUnderSampler(random_state=0, sampling_strategy=sample_ratio)
+        sampler = RandomUnderSampler(random_state=0, sampling_strategy=ratio_dict)
     elif sample_method == "nn":
-        sampler = CondensedNearestNeighbour(random_state=0)
+        sampler = ClusterCentroids(random_state=0, sampling_strategy=ratio_dict)
     elif sample_method == "smote":
-        sampler = SMOTE(random_state=0)
+        sampler = SMOTE(random_state=0, sampling_strategy=ratio_dict)
 
     X_np = np.array(X)
 
@@ -697,6 +850,8 @@ def apply_sampling(X, y, sample_method, sample_ratio):
     X_resampled, y_resampled = sampler.fit_resample(X_np, y)
 
     X_resampled = X_resampled.reshape(X_resampled.shape[0], num_features, num_times).tolist()
+
+    # print(X_resampled.shape)
 
     return X_resampled, y_resampled
 
