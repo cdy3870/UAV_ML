@@ -1,4 +1,4 @@
-import pandas as pd
+import pandas as pd 
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -17,15 +17,45 @@ from sklearn.preprocessing import StandardScaler
 import random
 import copy
 import data_processing as dp
+import _pickle as cpickle
+import time
+import gc
+from multiprocessing import Pool
+import os.path
+import random
+
+baseline_feats = ["vehicle_local_position | x", "vehicle_local_position | y",
+				 "vehicle_local_position | z", "vehicle_attitude_setpoint | roll_body",
+				 "vehicle_attitude_setpoint | pitch_body", "vehicle_attitude_setpoint | yaw_body"]
+
+current_feats = ["vehicle_local_position | x", "vehicle_local_position | y",
+				 "vehicle_local_position | z", "vehicle_attitude_setpoint | roll_body",
+				 "vehicle_attitude_setpoint | pitch_body", "vehicle_attitude_setpoint | yaw_body",
+				 "manual_control_setpoint | z", "sensor_gps | alt", "battery_status | temperature"]
+
 
 ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
+ulog_folder_hex = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloadedHex"
+csv_folder = "../../../work/uav-ml/px4-Ulog-Parsers/csvFiles" 
 json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
 work_dir = "../../../work/uav-ml/"
+
+with open("full_parsed_7_multi.txt", "rb") as f:
+	full_parsed_split = dp.split_features(pickle.load(f))
+	temp_ids = list(full_parsed_split.keys())
+temp_mapping = {}
+
 
 json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
 with open(json_file, 'r') as inputFile:
 	meta_json = json.load(inputFile)
 indexable_meta = dp.get_indexable_meta(meta_json)
+
+with open(work_dir + "ids_allfeats.txt", 'rb') as f:
+	ids_allfeats = pickle.load(f)
+
+with open(work_dir + "ids_alltables.txt", 'rb') as f:
+	ids_allfeats_dict = pickle.load(f)
 
 def feature_matching_test():
 	print("test")
@@ -258,56 +288,59 @@ def grouping_test():
 			count += 1
 
 def grouping_test_2():
-	# filtered_ids = dp.get_filtered_ids()
+	filtered_ids = dp.get_filtered_ids()
 
-	# groupings = {}
+	groupings = {}
 
-	# id_feats_dict = {}
-	# all_feature_names = set()
+	id_feats_dict = {}
+	all_feature_names = set()
 
-	# with open("ids_allfeats.txt", 'rb') as f:
-	# 	ids_allfeats_dict = pickle.load(f)
+	with open("ids_allfeats.txt", 'rb') as f:
+		ids_allfeats_dict = pickle.load(f)
 
-	# # print(len(ids_allfeats_dict))
+	# print(len(ids_allfeats_dict))
 
-	# for u in range(len(filtered_ids)):
-	# 	print("Getting feature names for: " + str(u) + "/" + str(len(filtered_ids)))
-	# 	# ulog_path = os.path.join(ulog_folder, filtered_ids[u] + ".ulg")
-	# 	try:
-	# 		names = ids_allfeats_dict[filtered_ids[u]]  
-	# 	except:
-	# 		# text file wasn't updated for the new ids so we'll just skip for now
-	# 		continue
+	for u in range(len(filtered_ids)):
+		print("Getting feature names for: " + str(u) + "/" + str(len(filtered_ids)))
+		# ulog_path = os.path.join(ulog_folder, filtered_ids[u] + ".ulg")
+		try:
+			names = ids_allfeats_dict[filtered_ids[u]]  
+		except:
+			# text file wasn't updated for the new ids so we'll just skip for now
+			continue
 		
-	# 	as_set = frozenset(names)
-	# 	all_feature_names = all_feature_names | as_set
-	# 	id_feats_dict[filtered_ids[u]] = as_set
+		as_set = frozenset(names)
+		all_feature_names = all_feature_names | as_set
+		id_feats_dict[filtered_ids[u]] = as_set
 
-	# all_feature_names_ls = list(all_feature_names)
-
-
-	# for f in range(len(all_feature_names_ls)):
-	# 	print("Assigning single feat: " + str(f) + "/" + str(len(all_feature_names_ls)))
-	# 	feat = all_feature_names_ls[f]
-
-	# 	for u in filtered_ids:
-	# 		try:
-	# 			if feat in id_feats_dict[u]:
-	# 				if feat in groupings:
-	# 					groupings[feat].add(u)
-	# 					logs_with_27.add(u)
-	# 				else:
-	# 					groupings[feat] = set([u])
-	# 					logs_with_27.add(u)
-	# 		except:
-	# 			pass
+	all_feature_names_ls = list(all_feature_names)
+	print(len(all_feature_names_ls))
 
 
+	for f in range(len(all_feature_names_ls)):
+		print("Assigning single feat: " + str(f) + "/" + str(len(all_feature_names_ls)))
+		feat = all_feature_names_ls[f]
 
-	# percentage = 0.6
+		for u in filtered_ids:
+			try:
+				if feat in id_feats_dict[u]:
+					if feat in groupings:
+						groupings[feat].add(u)
+						logs_with_27.add(u)
+					else:
+						groupings[feat] = set([u])
+						logs_with_27.add(u)
+			except:
+				pass
 
-	# # print(len(all_feature_names_ls))
-	# all_feature_names_ls = [u for u in all_feature_names_ls if len(groupings[u]) >= percentage * len(filtered_ids)]
+
+
+	percentage = 0.6
+
+	# print(len(all_feature_names_ls))
+	all_feature_names_ls = [u for u in all_feature_names_ls if len(groupings[u]) >= percentage * len(filtered_ids)]
+
+	print(len(all_feature_names_ls))
 
 	# # logs_with_27 = set()
 
@@ -474,7 +507,7 @@ def timestamp_interval_test():
 
 	y = dp.get_labels(list(full_parsed.keys()), indexable_meta)
 
-	intervals = [500, 2000]
+	intervals = [750]
 	for ints in intervals:
 		X = dp.timestamp_bin(full_parsed, num_t_ints=ints)
 		X_data_file = "X_data_7" + "_" + str(ints) + "_ints" + ".txt"
@@ -513,67 +546,269 @@ def table_drop_test():
 	dp.preprocess_data("full_parsed_7_no_batt.txt", "X_data_7_no_batt.txt", "Y_data_7_no_batt.txt")
 	# dp.preprocess_data("full_parsed_7_no_rates.txt", "X_data_7_no_rates.txt", "Y_data_7_no_rates.txt")
 	# dp.preprocess_data("full_parsed_7_no_local.txt", "X_data_7_no_local.txt", "Y_data_7_no_local.txt")
-	dp.preprocess_data("full_parsed_7_no_att.txt", "X_data_7_no_att.txt", "Y_data_7_no_att.txt")
+	# dp.preprocess_data("full_parsed_7_no_att.txt", "X_data_7_no_att.txt", "Y_data_7_no_att.txt")
 	# dp.preprocess_data("full_parsed_7_no_man.txt", "X_data_7_no_man.txt", "Y_data_7_no_man.txt")
 	# dp.preprocess_data("full_parsed_7_no_gps.txt", "X_data_7_no_gps.txt", "Y_data_7_no_gps.txt")
 
+def remove_extra_quads(parsed_file, X_orig, y_orig, X_new, y_new):
+	json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
+	with open(json_file, 'r') as inputFile:
+		meta_json = json.load(inputFile)
+	indexable_meta = dp.get_indexable_meta(meta_json)
 
-def pickling_dataframes_test():
+	with open("full_parsed_7.txt", 'rb') as f:
+		full_parsed_all_tables = pickle.load(f)
+	full_parsed_all_tables = dp.split_features(full_parsed_all_tables)
+	kept_quad_ids = [key for key in list(full_parsed_all_tables.keys()) if indexable_meta[key]["type"] == "Quadrotor"]
+
+	with open(parsed_file, 'rb') as f:
+		full_parsed_without_table = pickle.load(f)
+
+	full_parsed_without_table = dp.split_features(full_parsed_without_table)
+
+	all_ids = list(full_parsed_without_table.keys())
+	kept_indices = []
+
+	for i in range(len(all_ids)):
+		if indexable_meta[all_ids[i]]["type"] == "Quadrotor" and all_ids[i] in kept_quad_ids:
+			kept_indices.append(i)
+		if indexable_meta[all_ids[i]]["type"] == "Fixed Wing":
+			kept_indices.append(i)
+
+	
+	with open(X_orig, 'rb') as f:
+		X_orig = pickle.load(f)
+
+	with open(y_orig, 'rb') as f:
+		y_orig = pickle.load(f)
+
+	X_orig = np.array(X_orig)[kept_indices, :, :]
+	y_orig = np.array(y_orig)[kept_indices]
+
+	# print(Counter(y_orig))
+
+	with open(X_new, 'wb') as f:
+		pickle.dump(X_orig, f)
+
+
+	with open(y_new, 'wb') as f:
+		pickle.dump(y_orig, f)
+
+	# return X, y
+
+def remove_quad_errors(parsed_file, X_orig, y_orig, X_new, y_new):
+	json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
+	with open(json_file, 'r') as inputFile:
+		meta_json = json.load(inputFile)
+	indexable_meta = dp.get_indexable_meta(meta_json)
+
+
+	with open(parsed_file, 'rb') as f:
+		full_parsed_all_tables = pickle.load(f)
+	full_parsed_all_tables = dp.split_features(full_parsed_all_tables)
+	kept_quad_ids = [key for key in list(full_parsed_all_tables.keys()) if indexable_meta[key]["type"] == "Quadrotor" and indexable_meta[key]["errors"] == 0]
+
+	all_ids = list(full_parsed_all_tables.keys())
+	kept_indices = []
+
+	for i in range(len(all_ids)):
+		if indexable_meta[all_ids[i]]["type"] == "Quadrotor" and all_ids[i] in kept_quad_ids:
+			kept_indices.append(i)
+		if indexable_meta[all_ids[i]]["type"] == "Fixed Wing":
+			kept_indices.append(i)
+
+	
+	with open(X_orig, 'rb') as f:
+		X_orig = pickle.load(f)
+
+	with open(y_orig, 'rb') as f:
+		y_orig = pickle.load(f)
+
+	print(Counter(y_orig))
+
+	X_orig = np.array(X_orig)[kept_indices, :, :]
+	y_orig = np.array(y_orig)[kept_indices]
+
+	print(Counter(y_orig))
+
+	with open(X_new, 'wb') as f:
+		pickle.dump(X_orig, f)
+
+
+	with open(y_new, 'wb') as f:
+		pickle.dump(y_orig, f)
+
+	# return X, y
+
+
+
+def run_multiprocessing(left_bound):
+	print("running multiprocessing")
+	num_processes = 30
+	num_feats_per_proc = 5
+
+	ranges = []
+	for i in range(num_processes):
+		ranges.append([left_bound, left_bound + num_feats_per_proc])
+		left_bound = left_bound + num_feats_per_proc
+
+	pool = Pool(processes=len(ranges))
+	pool.map(pickling_dataframes_test, ranges)
+
+
+
+def pickling_dataframes_test(bounds):
 	filtered_ids = dp.get_filtered_ids()
-	ids_dfs = {}
-	print(len(filtered_ids))
+	# print(len(filtered_ids))
+	feats = {}
 	sanity_check = 0
+	with open(work_dir + "all_feats_in_60.txt", 'rb') as f:
+		all_feature_names_ls = pickle.load(f)
 
-	for u in range(len(filtered_ids)):
-		id = filtered_ids[u]
-		ulog_path = os.path.join(ulog_folder, id + ".ulg")
-		dfs, names = dp.convert_to_dfs_ulog(ulog_path)
-		ids_dfs[id] = dfs	
+	with open(work_dir + "ids_allfeats.txt", "rb") as f:
+		ids_allfeats = pickle.load(f)
+
+	# print(len(all_feature_names_ls))
+
+	# print(len(all_feature_names_ls))
+
+	# print(len(filtered_ids[left_bound:right_bound]))
+	# print(filtered_ids[left_bound])
+	# print(filtered_ids[right_bound - 1])
+
+	# for u in range(left_bound, right_bound):
+	# 	id = filtered_ids[u]
+	# 	ulog_path = os.path.join(ulog_folder, id + ".ulg")
+	# 	dfs, names = dp.convert_to_dfs_ulog(ulog_path)
+	# 	all_feats = ids_allfeats[id]
+
+	# 	print(u)
+
+	# 	for i in range(len(all_feature_names_ls)):
+	# 		feat_name = all_feature_names_ls[i]
+
+	# 		if feat_name in all_feats:				
+	# 			col = extract_individual(dfs, feats, feats_subset=[feat_name])[feat_name]	
+	# 		else:
+	# 			col = {}
 
 
-		if u == round(len(filtered_ids)/3) - 1:
-			file_1 = work_dir + "ids_dfs_1.txt"
+	# 		if feat_name in feats.keys():
+	# 			feats[feat_name][id] = col
+	# 		else:
+	# 			feats[feat_name] = {}
+	# 			feats[feat_name][id] = col
 
-			with open(file_1, 'wb') as f:
-				pickle.dump(ids_dfs, f)
-			sanity_check += len(ids_dfs)
-			ids_dfs = {}
+	# with open(work_dir + "feats_" + str(ind) + ".txt", 'wb') as f:
+	# 	pickle.dump(feats, f)
 
-		# if u > round(len(filtered_ids)/3) - 1:
+	# print(dp.convert_to_dfs_ulog(os.path.join(ulog_folder, "00745da2-554c-4358-936f-f090159aad08.ulg")))
+	# print(dp.convert_to_dfs_csv(os.path.join(csv_folder, "00745da2-554c-4358-936f-f090159aad08")))
+
+
+	for i in range(bounds[0], bounds[1]):
+		feat_name = all_feature_names_ls[i]
+		feature_file_name = work_dir + "feature_maps/" + feat_name + ".txt"
+
+		if os.path.exists(feature_file_name):
+			print(feature_file_name + " already exists, skipping")
+			continue
+
+		feats = {}
 		
-		if u == 2*round(len(filtered_ids)/3) - 1:
-			file_2 = work_dir + "ids_dfs_2.txt"
 
-			with open(file_2, 'wb') as f:
-				pickle.dump(ids_dfs, f)
-			sanity_check += len(ids_dfs)
-			ids_dfs = {}
+		for u in range(len(filtered_ids)):
+			# raw_ulog = False
 
-		if u == len(filtered_ids) - 1:
-			file_3 = work_dir + "ids_dfs_3.txt"
+			# id = filtered_ids[u]
+			# csv_path = os.path.join(csv_folder, id)
+			# dfs, names = dp.convert_to_dfs_csv(csv_path)
 
-			with open(file_3, 'wb') as f:
-				pickle.dump(ids_dfs, f)
-			sanity_check += len(ids_dfs)
-			ids_dfs = {}
+			# if len(dfs.keys()) == 0:
+			# 	raw_ulog = True
+			# 	ulog_path = os.path.join(ulog_folder, id + ".ulg")
+			# 	dfs, names = dp.convert_to_dfs_ulog(ulog_path)
 
-		print("Pickled: " + str(u) + "/" + str(len(filtered_ids)))
+			id = filtered_ids[u]
+			ulog_path = os.path.join(ulog_folder, id + ".ulg")
+			dfs, names = dp.convert_to_dfs_ulog(ulog_path)
 
-	print(sanity_check)
-	print("finished")
+			all_feats = ids_allfeats[id]
+
+			if feat_name in all_feats:	
+				col = extract_individual(dfs, feats, feats_subset=[feat_name])[feat_name]	
+			else:
+				col = {}
+
+
+			if feat_name in feats.keys():
+				feats[feat_name][id] = col
+			else:
+				feats[feat_name] = {}
+				feats[feat_name][id] = col
+
+			print("Feat: " + str(i) + ", Log: " + str(u) + "/" + str(len(filtered_ids)))			
+
+		with open(feature_file_name, 'wb') as f:
+			pickle.dump(feats[feat_name], f)
 
 
 
-	# with open(work_dir + 'ids_dfs_1.txt', 'rb') as f:
-	# 	ids_dfs = pickle.load(f)
+	# for i in range(len(all_feature_names_ls)): 
+	# 	feat_name = all_feature_names_ls[i]
+	# 	with open(work_dir + feat_name + ".txt", 'wb') as f:
+	# 		pickle.dump(feats[feat_name], f)
 
-	# print(len(ids_dfs))
+	# for i in range(len(all_feature_names_ls)): 
+	# 	feat_name = all_feature_names_ls[i]
+	# 	print(len(feats[feat_name]))
+	# 	os.remove(feat_name)
 
-def saving_allfeats():
+
+
+		# if u == round(len(filtered_ids)/5) - 1:
+		# 	file_1 = work_dir + "ids_dfs_1.txt"
+
+		# 	with open(file_1, 'wb') as f:
+		# 		pickle.dump(ids_dfs, f)
+		# 	sanity_check += len(ids_dfs)
+		# 	ids_dfs = {}
+
+# def aggregate_pickles():
+# 	with open(work_dir + "all_feats.txt", 'rb') as f:
+# 		all_feature_names_ls = pickle.load(f)
+
+
+
+# 	with open(work_dir + "feats_1.txt", 'rb') as f:
+# 		d_1 = pickle.load(f)
+
+# 	with open(work_dir + "feats_2.txt", 'rb') as f:
+# 		d_2 = pickle.load(f)	
+
+# 	with open(work_dir + "feats_3.txt", 'rb') as f:
+# 		d_3 = pickle.load(f)	
+
+# 	with open(work_dir + "feats_4.txt", 'rb') as f:
+# 		d_4 = pickle.load(f)	
+
+# 	with open(work_dir + "feats_5.txt", 'rb') as f:
+# 		d_5 = pickle.load(f)	
+
+# 	data = [d_1, d_2, d_3, d_4, d_5]
+
+# 	for i in range(len(all_feature_names_ls)): 
+# 		feat_df = {}
+# 		feat_name = all_feature_names_ls[i]
+# 		feat_df[feat_name] = {}
+# 		for d in data:
+# 			feat_df[feat_name].update(d[feat_name])
+
+def saving_alltables():
 	filtered_ids = dp.get_filtered_ids()
 	ids_allfeats = {}
 
-	for u in range(len(filtered_ids[:5])):
+	for u in range(len(filtered_ids)):
 		id = filtered_ids[u]
 		ulog_path = os.path.join(ulog_folder, id + ".ulg")
 
@@ -609,20 +844,134 @@ def checking_multiple_flights():
 
 	print(len(new_filtered_ids))
 
-def parse_files(ids_dfs, parsed_file):
+
+def extract_individual(dfs, feats, feats_subset):
+	feature_dict = {}
+	for feat in feats_subset:
+		strings = feat.split(" ")
+		table_name = strings[0]
+		feat_name = strings[2]
+		# print(feat_name)
+
+		try:
+			feature_dict[feat] = [dfs[table_name][0][["timestamp"] + [feat_name]]]
+		except:
+			# strings = feat_name.split(" ")
+			# if strings[0] in ["previous", "next", "current"]:
+			# 	csv_feat_name = feat_name.replace("_", ".", 1)
+			# else:
+			# 	print(table_name)
+			# 	print(feat_name)
+			# csv_feat_name = feat_name
+
+			print(table_name)
+			print(feat_name)
+
+			extracted_df = dfs[table_name][0]
+			# print(extracted_df.columns)
+			extracted_df.columns = extracted_df.columns.str.replace("[", "_")
+			extracted_df.columns = extracted_df.columns.str.replace("]", "_")
+			extracted_df.columns = extracted_df.columns.str.replace(".", "_")
+			# print(extracted_df.columns)
+
+			extracted_df = extracted_df[["timestamp"] + [feat_name]]
+			# extracted_df.rename({csv_feat_name: feat_name}, axis=1, inplace=True)
+
+			feature_dict[feat] = [extracted_df]
+
+	return feature_dict
+
+# def parse_files(feats_subset):
+# 	full_parsed = {}
+# 	filtered_ids = dp.get_filtered_ids()
+
+# 	# print(len(set(ids_allfeats.keys()).intersection(set(filtered_ids))))
+
+# 	gc.disable()
+# 	with open(work_dir + "ids_dfs_1_fast.txt", 'rb') as f:
+# 		ids_dfs = cpickle.load(f)
+# 	f.close()
+# 	gc.enable()
+
+# 	# print(len(set(ids_dfs.keys()).intersection(set(filtered_ids))))
+
+# 	# print(len(set(ids_dfs.keys()).intersection(set(ids_allfeats.keys()))))
+
+# 	count = 0
+
+
+# 	for u in range(len(filtered_ids)):
+# 		if u == 2*round(len(filtered_ids)/5) - 1:
+# 			with open(work_dir + "ids_dfs_2.txt", 'rb') as f:
+# 				ids_dfs = pickle.load(f)
+# 			count = 0
+
+# 		if u == 3*round(len(filtered_ids)/5) - 1:
+# 			with open(work_dir + "ids_dfs_3.txt", 'rb') as f:
+# 				ids_dfs = pickle.load(f)
+# 			count = 0
+
+
+# 		if u == 4*round(len(filtered_ids)/5) - 1:
+# 			with open(work_dir + "ids_dfs_4.txt", 'rb') as f:
+# 				ids_dfs = pickle.load(f)
+# 			count = 0
+
+# 		if u == len(filtered_ids) - 1:
+# 			with open(work_dir + "ids_dfs_5.txt", 'rb') as f:
+# 				ids_dfs = pickle.load(f)
+# 			count = 0
+
+# 		log_id = filtered_ids[count]
+# 		if u % 200 == 0:
+# 			print("Log: " + str(u) + "/" + str(len(filtered_ids)))
+# 		if  log_id not in ids_allfeats.keys() or log_id not in ids_dfs.keys():
+# 			continue
+
+# 		dfs = ids_dfs[log_id]
+# 		feats = ids_allfeats[log_id]
+
+# 		# dfs, names = dp.convert_to_dfs_ulog(ulog_path)
+# 		# feats = dfs['vehicle_local_position'][0].keys()
+# 		# feats = ['vehicle_local_position | ' + f for f in feats]
+# 		# print(feats)
+# 		# print(feats_subset)
+
+
+# 		if len(set(feats).intersection(feats_subset)) == len(feats_subset):
+# 			feature_dict = extract_individual(dfs, feats, feats_subset=feats_subset)
+# 			# print(feature_dict)
+# 			full_parsed[filtered_ids[u]] = feature_dict
+
+# 		count += 1
+
+# 	return full_parsed
+
+def parse_files(feats_subset):
+	filtered_ids = dp.get_filtered_ids()
 	full_parsed = {}
 
-	for u in ids_dfs.keys():
-		ulog_path = os.path.join(ulog_folder, u + ".ulg")
+	for feat in feats_subset:
 
-		dfs = ids_dfs[u]
-		names = ids_allfeats[u]
+		file_dir = work_dir + "feature_maps/" + feat + ".txt"
 
-		if len(set(names).intersection(feats_subset)) == len(feats_subset):
-			feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
-			full_parsed[u] = feature_dict
+		with open(file_dir, "rb") as f:
+			mapping = pickle.load(f)
 
+		for u in range(len(filtered_ids)): 
+
+			if filtered_ids[u] in mapping and len(mapping[filtered_ids[u]]) != 0:
+
+				if filtered_ids[u] not in full_parsed.keys():
+					full_parsed[filtered_ids[u]] = {feat: mapping[filtered_ids[u]]}		
+				else:
+					full_parsed[filtered_ids[u]][feat] = mapping[filtered_ids[u]]
+
+	# print(full_parsed['fe8f339d-cad0-4d42-ac59-fe14b26d419d'])
+
+	print(len(full_parsed))
 	return full_parsed
+
 
 def store_X_and_Y(subset_dir, parsed_file, X_file, y_file):
 	with open(subset_dir + "/" + parsed_file, 'rb') as f:
@@ -632,27 +981,19 @@ def store_X_and_Y(subset_dir, parsed_file, X_file, y_file):
 
 	y = dp.get_labels(list(parsing.keys()), indexable_meta)
 
-	X = timestamp_bin(full_parsed_split)
-
-	# X = []
-	# y = []
+	X = dp.timestamp_bin(full_parsed_split)
 
 	with open(X_file, 'wb') as f:
 		pickle.dump(X, f)
 
-
 	with open(y_file, 'wb') as f:
 		pickle.dump(y, f)
 
-
-def brute_force_feat_select(num_features, best_subset=[]):
+def get_tables_in_60():
 	filtered_ids = dp.get_filtered_ids()
 	groupings = {}
 	id_feats_dict = {}
-	all_feature_names = set()
-
-	with open(work_dir + "ids_allfeats.txt", 'rb') as f:
-		ids_allfeats_dict = pickle.load(f)
+	all_table_names = set()
 
 	# print(len(ids_allfeats_dict))
 
@@ -661,20 +1002,23 @@ def brute_force_feat_select(num_features, best_subset=[]):
 		# ulog_path = os.path.join(ulog_folder, filtered_ids[u] + ".ulg")
 		try:
 			names = ids_allfeats_dict[filtered_ids[u]]  
+			if type(names) is not list:
+				continue
 		except:
 			# text file wasn't updated for the new ids so we'll just skip for now
 			continue
-		
+
+
 		as_set = frozenset(names)
-		all_feature_names = all_feature_names | as_set
+		all_table_names = all_table_names | as_set
 		id_feats_dict[filtered_ids[u]] = as_set
 
-	all_feature_names_ls = list(all_feature_names)
+	all_table_names_ls = list(all_table_names)
 
 
-	for f in range(len(all_feature_names_ls)):
+	for f in range(len(all_table_names_ls)):
 		# print("Assigning single feat: " + str(f) + "/" + str(len(all_feature_names_ls)))
-		feat = all_feature_names_ls[f]
+		feat = all_table_names_ls[f]
 
 		for u in filtered_ids:
 			try:
@@ -690,66 +1034,260 @@ def brute_force_feat_select(num_features, best_subset=[]):
 
 	percentage = 0.6
 
-	all_feature_names_ls = [u for u in all_feature_names_ls if len(groupings[u]) >= percentage * len(filtered_ids)]
-	# print(len(all_feature_names_ls))
+	all_table_names_ls = [u for u in all_table_names_ls if len(groupings[u]) >= percentage * len(filtered_ids)]
 
-	feat_mapping = {}
-
-	for i in range(len(all_feature_names_ls)):
-		feat_mapping[i] = all_feature_names_ls[i]
+	return all_table_names_ls
 
 
-	with open(work_dir + "ids_dfs_1.txt", 'rb') as f:
-		ids_dfs = pickle.load(f)
+def get_features_in_60():
+	with open(work_dir + "all_feats_in_topic_subset.txt", 'rb') as f:
+		all_feature_names_ls = pickle.load(f)
 
-	with open(work_dir + "ids_dfs_2.txt", 'rb') as f:
-		ids_dfs_2 = pickle.load(f)
+	with open(work_dir + "ids_allfeats_in_topic_subset.txt", 'rb') as f:
+		ids_allfeats = pickle.load(f)	
 
-	with open(work_dir + "ids_dfs_3.txt", 'rb') as f:
-		ids_dfs_3 = pickle.load(f)
+	threshold = len(dp.get_filtered_ids()) * 0.60
+	over_60_count = 0
+	feat_counts = {}
+	feats_list = []
 
-	ids_dfs.update(ids_dfs_2)
-	ids_dfs.update(ids_dfs_3)
 
-	# ids_dfs = {}
+
+	for feat in all_feature_names_ls:
+		for key, value in ids_allfeats.items():
+			if feat in value:
+				if feat in feat_counts.keys():
+					feat_counts[feat] += 1
+				else:
+					feat_counts[feat] = 1
+		if feat_counts[feat] >= threshold:
+			feats_list.append(feat)
+			print(len(feats_list))
+
+	print(len(feats_list))
+
+	with open(work_dir + "all_feats_in_60_in_topic_subset.txt", 'wb') as f:
+		pickle.dump(feats_list, f)
+
+	return feats_list
+	
+
+
+
+def saving_allfeats():
+	filtered_ids = dp.get_filtered_ids()
+	all_feature_names_ls = get_features_in_60()
+	all_table_names_ls = ["vehicle_local_position", "sensor_gps", "vehicle_gps_position", "vehicle_attitude_setpoint", "vehicle_rates_setpoint", "rollspeed",
+					"home_position", "vehicle_attitude_setpoint", "sensor_accel", "sensor_gyro", "sensor_mag", "vehicle_air_data", "manual_control_setpoint", "battery_status"]
+	
+
+	ids_allfeats = {}
+
+	all_feature_names = set()
+	
+
+	for i in range(len(filtered_ids)):
+		log_feature_names = set()
+		id = filtered_ids[i]
+		if indexable_meta[id]["type"] == "Hexarotor":
+			ulog_path = os.path.join(ulog_folder_hex, id + ".ulg")
+		else:
+			ulog_path = os.path.join(ulog_folder, id + ".ulg")		
+
+		dfs, names = dp.convert_to_dfs_ulog(ulog_path)
+
+		for j in range(len(all_table_names_ls)):
+			try:
+				feats = [all_table_names_ls[j] + " | " + k 
+						 for k in list(dfs[all_table_names_ls[j]][0].keys())
+						 if k != "timestamp" and k != 'ref_timestamp' and k != "surface_bottom_timestamp"]
+
+				feats = [f for f in feats if f in all_feature_names_ls]
+				as_set = frozenset(feats)
+				log_feature_names = log_feature_names | as_set
+				all_feature_names = all_feature_names | as_set
+
+			except:
+				# print("table does not exist")
+				continue
+
+		print(len(all_feature_names))
+
+		ids_allfeats[filtered_ids[i]] = list(log_feature_names)
+
+		print("Log: " + str(i) + "/" + str(len(filtered_ids)))
+
+	with open(work_dir + "all_feats_in_topic_subset.txt", 'wb') as f:
+		pickle.dump(list(all_feature_names), f)
+
+	with open(work_dir + "ids_allfeats_in_topic_subset.txt", 'wb') as f:
+		pickle.dump(ids_allfeats, f)	
+
+def get_feat_subsets():
+	baseline_feats = ["vehicle_local_position | x", "vehicle_local_position | y",
+					 "vehicle_local_position | z", "vehicle_attitude_setpoint | roll_body",
+					 "vehicle_attitude_setpoint | pitch_body", "vehicle_attitude_setpoint | yaw_body"]
+
+	with open(work_dir + "all_feats_in_topic_subset.txt", 'rb') as f:
+		all_feats = pickle.load(f)	
+
+	print(len(all_feats))
+
+	parsed_feats = [f for f in all_feats if f.split(" ")[0] != "battery_status"]
+
+	parsed_feats = [f for f in parsed_feats if not any(char.isdigit() for char in f)]
+
+	print(len(parsed_feats))
+
+	# grouped_feats = {}
+	# for feat in all_feats:
+	# 	if feat in existing_feats:
+	# 		print("true")
+	# 	topic = feat.split(" ")[0]
+	# 	feat_name = feat.split(" ")[2]
+	# 	if topic not in grouped_feats.keys():
+	# 		grouped_feats[topic] = [feat_name]
+	# 	else:
+	# 		grouped_feats[topic].append(feat_name)
+
+	# print(json.dumps(grouped_feats, indent=2))
+
+
+
+	all_directional_feats = []
+	new_parsed_feats = []
+
+	for full in parsed_feats:
+		if full not in baseline_feats:
+			full_split = full.split(" ")
+			feat_split = full_split[2].split("_")
+
+			if "yaw" in feat_split or "roll" in feat_split or "pitch" in feat_split or "x" in feat_split or "y" in feat_split or "z" in feat_split:
+				all_directional_feats.append(full)
+			else:
+				new_parsed_feats.append(full)
+
+
+
+	potential_directional_feats = {"home_position | x": ["home_position | y", "home_position | z"],
+						 "manual_control_setpoint | x": ["manual_control_setpoint | y", "manual_control_setpoint | z"],
+						 "vehicle_rates_setpoint | yaw": ["vehicle_rates_setpoint | roll", "vehicle_rates_setpoint | pitch"],
+						 "vehicle_attitude_setpoint | yaw_reset_integral": ["vehicle_attitude_setpoint | roll_reset_integral", "vehicle_attitude_setpoint | pitch_reset_integral"]}
+
+
+	for feat in list(potential_directional_feats.keys()):
+		new_parsed_feats.append(feat)
+
+
+	"""
+	other potential directional_feats
+	vehicle_attitude_setpoint | fw_control_yaw
+	vehicle_local_position | z_reset_counter
+	vehicle_local_position | z_valid
+	home_position | yaw
+	vehicle_local_position | v_z_valid
+	vehicle_local_position | z_global
+	vehicle_attitude_setpoint | yaw_sp_move_rate
+	vehicle_local_position | delta_z
+	vehicle_local_position | z_deriv
+	"""
+
+	all_feat_subsets = {}
+
+	for j in range(5):
+		feat_subset = []
+		for i in range(5):
+			randint = random.randint(0, len(new_parsed_feats) - 1)
+			while new_parsed_feats[randint] in feat_subset and new_parsed_feats[randint] in baseline_feats:
+				randint = random.randint(0, len(new_parsed_feats) - 1)
+
+			feat_subset.append(new_parsed_feats[randint])
+
+			if new_parsed_feats[randint] in potential_directional_feats:
+				feat_subset += potential_directional_feats[new_parsed_feats[randint]]
+
+		feat_subset += baseline_feats
+		all_feat_subsets[j] = feat_subset
+		print(feat_subset)
+		print("\n")
+
+
+	with open(work_dir + "feat_subsets.txt", 'wb') as f:
+		pickle.dump(all_feat_subsets, f)	
+
+
+def drop_fake_features():
+	with open(work_dir + "all_feats.txt", 'rb') as f:
+		all_feature_names_ls = pickle.load(f)
+
+	print(len(all_feature_names_ls))
+	for feat in all_feature_names_ls: 
+		if feat.split(" ")[2] == "next_timestamp":
+			all_feature_names_ls.remove(feat)
+
+	print(len(all_feature_names_ls))
+
+	with open(work_dir + "all_feats.txt", 'wb') as f:
+		pickle.dump(all_feature_names_ls, f)
+
+def brute_force_feat_select(num_features, best_subset=[]):
+	with open(work_dir + "all_feats_in_60.txt", 'rb') as f:
+		all_feature_names_ls = pickle.load(f)
+
+	print(len(all_feature_names_ls))
+
+	# all_feature_names_ls = [all_feature_names_ls[0]]
+
 
 	subset_dir = work_dir + num_features + "_feature_parsings"
-	for i in range(len(all_feature_names_ls)):
-		if best_subset == []:
-			feats_subset = [all_feature_names_ls[i]]
-			full_parsed = parse_files(ids_dfs, feats_subset)
-			parsed_file = "full_parsed_feat_" + str(i) + ".txt"
-		else:
-			concat_string = ""
-			feats_subset = []
-			for j in range(len(best_subset)):
-				feats_subset.append(all_feature_names_ls[best_subset[j]])
-				concat_string += str(best_subset[j])
-				concat_string += "_"
 
-			feats_subset.append(all_feature_names_ls[i])
+	if not os.path.isdir(subset_dir):
+		os.makedirs(subset_dir)
+
+	feat_map_dir = work_dir + "feature_maps"
+	
+	available_features = [x[:-4] for x in os.listdir(feat_map_dir)]
 
 
-			full_parsed = parse_files(ids_dfs, feats_subset)
+	# for i in range(len(available_features)):
+	# 	if available_features[i] in all_feature_names_ls:
+	# 		print("Feat: " + str(i) + "/" + str(len(available_features)))
+	# 		parsed_file = ""
+	# 		if best_subset == []:
+	# 			feats_subset = [available_features[i]]
+	# 			parsed_file = "full_parsed_feat_" + available_features[i] + ".txt"
+	# 			full_parsed = parse_files(feats_subset)
+	# 	else:
+	# 		concat_string = ""
+	# 		feats_subset = []
+	# 		for j in range(len(best_subset)):
+	# 			feats_subset.append(all_feature_names_ls[best_subset[j]])
+	# 			concat_string += str(best_subset[j])
+	# 			concat_string += "_"
 
-			parsed_file = "full_parsed_feat_" + concat_string + str(i) + ".txt"
-
-		if not os.path.isdir(subset_dir):
-			os.makedirs(subset_dir)
-
-		with open(subset_dir + "/" + parsed_file, 'wb') as f:
-			pickle.dump(full_parsed, f)
+	# 		feats_subset.append(all_feature_names_ls[i])
+	# 		parsed_file = "full_parsed_feat_" + concat_string + str(i) + ".txt"
+	# 		full_parsed = parse_files(feats_subset)
 
 
-	for i in range(len(all_feature_names_ls)):
-		concat_string = ""
-		for j in range(len(best_subset)):
-			concat_string += str(best_subset[j])
-			concat_string += "_"
-		parsed_file = "full_parsed_feat_" + concat_string + str(i) + ".txt"
-		X_file = subset_dir + "/" + "X_data_feat_" + concat_string + str(i) + ".txt"
-		y_file = subset_dir + "/" + "y_data_feat_" + concat_string + str(i) + ".txt"
-		store_X_and_Y(subset_dir, parsed_file, X_file, y_file)
+			# with open(subset_dir + "/" + parsed_file, 'wb') as f:
+			# 	pickle.dump(full_parsed, f)
+
+
+	# print(len(os.listdir(work_dir + "one_feature_parsings")))
+
+
+	for i in range(len(available_features)):
+
+		if available_features[i] in all_feature_names_ls:
+			concat_string = available_features[i]
+			# for j in range(len(best_subset)):
+			# 	concat_string += str(best_subset[j])
+			# 	concat_string += "_"
+			parsed_file = "full_parsed_feat_" + concat_string + ".txt"
+			X_file = subset_dir + "/" + "X_data_feat_" + concat_string + ".txt"
+			y_file = subset_dir + "/" + "y_data_feat_" + concat_string + ".txt"
+			store_X_and_Y(subset_dir, parsed_file, X_file, y_file)	
 
 
 def feature_selection_justification():
@@ -822,10 +1360,75 @@ def feature_selection_justification():
 	print(len(all_feature_names_ls))
 	print(len(logs_with_27))
 
-def check_pickle():
-	with open(work_dir + "ids_dfs_2.txt", 'rb') as f:
-		asdf = pickle.load(f)
-	print(len(asdf))
+
+
+def save_durations():
+	# with open(work_dir + "durations.txt", 'rb') as f:
+	# 	old_durations = pickle.load(f)
+	# id = "00d29a7c-aae8-4f50-ae8b-9befe5c69e1e"
+	# ulog_path = os.path.join(ulog_folder, id + ".ulg")
+	# log = dp.pyulog.ULog(ulog_path)
+	# print(log.start_timestamp)
+	# print(log.last_timestamp)
+	# print([msg.name for msg in log.data_list if msg.name == 'vehicle_local_position_setpoint'])
+	# log.data_list = [msg.name for msg in log.data_list if msg.name == 'vehicle_local_position_setpoint']
+	# print(log.start_timestamp)
+
+	# print((log.last_timestamp - log.start_timestamp)/1e6)
+
+	# for key, value in durations.items():
+	# 	if value/1e6 > 1500:
+	# 		ulog_path = os.path.join(ulog_folder, key + ".ulg")
+	# 		log = dp.pyulog.ULog(ulog_path)
+	# 		print((value/1e6, (log.last_timestamp - log.start_timestamp)/1e6))
+
+	filtered_ids = dp.get_filtered_ids()
+	durations = {}
+
+	for u in range(len(filtered_ids)):
+		id = filtered_ids[u]
+		# print(old_durations[id])
+		if indexable_meta[id]["type"] == "Hexarotor":
+			ulog_path = os.path.join(ulog_folder_hex, id + ".ulg")
+		else:
+			ulog_path = os.path.join(ulog_folder, id + ".ulg")
+		try:
+			log = dp.pyulog.ULog(ulog_path)
+			durations[id] = [log.start_timestamp, log.last_timestamp]
+
+		except:
+
+			durations[id] = "parsing error"
+
+		print("Log: " + str(u) + "/" + str(len(filtered_ids)))	
+
+
+		
+	with open(work_dir + "new_durations.txt", 'wb') as f:
+		pickle.dump(durations, f)
+
+
+def check_status():
+	with open(work_dir + "all_feats_in_60.txt", 'rb') as f:
+		all_feature_names_ls = pickle.load(f)
+
+	current_feats = os.listdir(work_dir + "feature_maps/")
+	current_feats = list(map(lambda x : x[:-4], current_feats))
+
+	print(len(set(current_feats).intersection(set(all_feature_names_ls))))
+
+def get_tarik_data():
+	file = "../../../work/uav-ml/official_experiments/sampling/X_sampling_1_50_ints.txt"
+	remapped = {}
+	with open(file, "rb") as f:
+		X_data = pickle.load(f)
+
+	for i, value in enumerate(X_data):
+		remapped[temp_ids[i]] = value
+
+	with open("mapped_processed_data.txt", "wb") as f:
+		pickle.dump(remapped, f)
+
 
 
 def main():
@@ -845,14 +1448,73 @@ def main():
 
 	# feature_selection_justification()
 
+	# pickling_dataframes_test([1, 10])
 
-	pickling_dataframes_test()
-	saving_allfeats()	
+	# saving_alltables()	
+	# saving_allfeats()
 	# brute_force_feat_select("one")
 	# brute_force_feat_select("two", [0, 1])
 
-
 	# check_pickle()
+
+	# remove_extra_quads("full_parsed_7_no_batt.txt", "X_data_7_no_batt.txt", "Y_data_7_no_batt.txt", "X_data_7_no_batt_no_extra.txt", "Y_data_7_no_batt_no_extra.txt")
+
+	# parse_files(["vehicle_local_position | x"])
+
+	# remove_quad_errors("full_parsed_7.txt", "X_data_7.txt", "Y_data_7.txt", "X_data_7_no_quad_errors.txt", "Y_data_7_no_quad_errors.txt")
+
+	# drop_fake_features()
+
+	# run_multiprocessing(0)
+	# run_multiprocessing(150)
+
+	# parse_files(["battery_status | full_charge_capacity_wh"])
+
+	# save_durations()
+
+	# get_features_in_60()
+
+	# check_status()
+
+	# dp.get_filtered_ids()
+
+	# dp.preprocess_data("X_data_7_multi.txt", "Y_data_7_multi.txt")
+
+	# get_feat_subsets()
+
+	# dp.preprocess_data("X_data_7_set_1.txt", "Y_data_7_set_1.txt")
+
+	# with open(work_dir + "feat_subsets.txt", "rb") as f:
+	# 	feat_subsets = pickle.load(f)
+
+	# print(feat_subsets)
+
+
+
+
+
+	# with open(work_dir + "official_experiments/feat_select/Y_data_feat_subset_2.txt", "rb") as f:
+	# with open("Y_data_7.txt", "rb") as f:
+	# 	y = pickle.load(f)
+
+
+	# dp.preprocess_data("X_data_feat_subset_baseline.txt", "Y_data_feat_subset_baseline.txt", parse_id="feat_subset_baseline", feats_subset=baseline_feats)
+
+
+	# print(Counter(y))
+
+	# feat_subset = feat_subsets[3]
+	# dp.preprocess_data("X_data_feat_subset_3.txt", "Y_data_feat_subset_3.txt", parse_id="feat_subset_3", feats_subset=feat_subset)
+
+	# with open(work_dir + "official_experiments/feat_select/" + "full_parsed_feat_subset_0.txt", "rb") as f:
+	# 	X = pickle.load(f)
+
+	# print(X[list(X.keys())[0]])
+
+	# print(X[0][0])
+	# print(np.array(X).shape)
+
+	get_tarik_data()
 
 
 if __name__ == "__main__":
