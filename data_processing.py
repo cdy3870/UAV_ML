@@ -20,6 +20,9 @@ from imblearn.over_sampling import RandomOverSampler, SMOTE
 from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, ClusterCentroids
 
 work_dir = "../../../work/uav-ml/"
+ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
+ulog_folder_hex = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloadedHex"
+
 
 ################################################## FEATURE EXTRACTION/SELECTION ########################################################
 
@@ -56,6 +59,16 @@ feat_list = [
 
 
 def get_indexable_meta(meta_json):
+    '''
+    Get mapped ulog ids to its metadata (duration, drone type, etc.)
+
+    Parameters:
+        meta_json (dict) : mapped data
+
+    Returns:
+        indexable_meta (dict) :  mapped metadata
+    '''
+
     indexable_meta = {}
 
     for m in meta_json:
@@ -65,15 +78,23 @@ def get_indexable_meta(meta_json):
         
     return indexable_meta
 
-ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
-ulog_folder_hex = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloadedHex"
-
 json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
 with open(json_file, 'r') as inputFile:
     meta_json = json.load(inputFile)
 indexable_meta = get_indexable_meta(meta_json)
 
 def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_name, cols):
+    '''
+
+    Parameters:
+        dfs
+        parsed_names
+        feature_dict
+        table_name
+        feature_name
+        cols
+    '''
+
     spec_df = []
     if len(table_name) > 1:
         for t in table_name:
@@ -101,20 +122,18 @@ def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_nam
         feature_dict[feature_name].append(spec_df[0][["timestamp"] + cols])
             
 
-def look_for_feature(dfs, features):
-    flag = False
-    found_feature = []
-    
-    for feature in features:
-        for x in list(dfs.keys()):
-            for y in list(dfs[x][0].columns):
-                if feature == y and x not in found_feature:
-                    found_feature.append(x)
-            
-                
-    return found_feature
-
 def extract_individual(dfs, feats_subset):
+    '''
+    Returns chunk of data between two timestamps
+
+    Parameters:
+        dfs () : 
+        feats_subset () :
+        
+    Returns:
+        feature_dict () :
+    '''
+
     feature_dict = {}
     for feat in feats_subset:
         # print(feat)
@@ -126,8 +145,20 @@ def extract_individual(dfs, feats_subset):
 
 
     return feature_dict
-            
+     
+
 def extract_from_tables(dfs, parsed_names, feats_subset=None):
+    '''
+
+    Parameters:
+        dfs () :
+        parsed_names () :
+        feats_subset () :
+        
+    Returns:
+        feature_dict () :
+    '''
+
     feature_dict = {}
 
     if feats_subset == None:
@@ -144,37 +175,32 @@ def extract_from_tables(dfs, parsed_names, feats_subset=None):
     return feature_dict
 
 
-
-
-def duration_to_mill(str):
-    splitted = str.split(":")
-    total_minutes = 0
-    
-    total_minutes += 3600000*int(splitted[0])
-    # print(splitted[1].lstrip("0"))
-    
-    if splitted[1] != "00":
-        total_minutes += 60000*int(splitted[1].lstrip("0"))
-    if splitted[2] != "00":
-        total_minutes += 1000*int(splitted[2].lstrip("0"))/60
-            
-    return round(total_minutes, 2)
-
 def get_distribution(ids):
+    '''
+    Returns the distribution of classes for the provided ids
+
+    Parameters:
+        ids (list) : list of ulog ids
+
+    Returns:
+        distribution (dict) : distribution of drone types
+    '''
+
     types = []
 
     for u in ids:
         types.append(indexable_meta[u]["type"])
 
-    print(Counter(types))
-
     return Counter(types)
 
 
 def get_filtered_ids():
-    # with open(json_file, 'r') as inputFile:
-    #     meta_json = json.load(inputFile)
-    # indexable_meta = get_indexable_meta(meta_json)
+    '''
+    Returns the ids from the quad, fixed, and hex folders
+
+    Returns:
+        filtered_ids (list) : ids used in experiments
+    '''
 
     ulogs_downloaded = os.listdir(ulog_folder)
     ulogs_downloaded_hex = os.listdir(ulog_folder_hex)
@@ -190,55 +216,22 @@ def get_filtered_ids():
             
     return filtered_ids
 
-def convert_to_dfs_csv(csv_path, only_names=False):
-    dfs = {}
-    names = []
 
-    # drop ulog file, parameters file, and other files that have configurations essentially (no timestamps)
-    # drop_tables = ["ulg", ".DS_Store", "params.txt", "sensor_selection", "parameter_update", "mission_result", "position_setpoint_triplet", "test_motor"]
-    drop_tables = []
-    
-    dirs = os.listdir(csv_path)
-    for d in dirs:
-        if not any([True if string in d else False for string in drop_tables]):
-            temp = d[37:][:-6]
-            if temp[len(temp) - 1].isdigit():
-                temp = temp[:-2]
-                
-            
-            if not only_names:
-                if temp not in dfs:
-                    dfs[temp] = [pd.read_csv(os.path.join(csv_path, d))]
-                else:                    
-                    dfs[temp].append(pd.read_csv(os.path.join(csv_path, d)))
+def convert_to_dfs_ulog(ulog_path, specific_tables=[], only_col_names=False):
+    '''
+    Parses ulog file and extracts data as dataframes
 
-                
-            names.append(temp)
+    Parameters:
+        ulog_path (string) : path to ulog file
+        specific_tables (list) : list of topic or table names for ulogs
+        only_col_names (bool) : only return the topics of a ulog and not its data
 
-        # print(dfs)
-            
-    return dfs, names
+    Returns:
+        dataframes () :
+    '''
 
-
-def get_desired_feats():
-    desired_feats = []
-    for i in range(len(feat_list)):
-        desired_feats += feat_list[i]["table name"]
-
-    return desired_feats
-
-
-def get_n_feats_matched(names):
-    desired_feats = set(get_desired_feats())
-
-    matched = desired_feats.intersection(set(names))
-
-    return list(matched)
-    
-
-def convert_to_dfs_ulog(ulog_path, specific_tables=[], only_col_names=False, messages=None):
     try:
-        log = pyulog.ULog(ulog_path, messages)
+        log = pyulog.ULog(ulog_path, messages=None)
     except:
         print("failed to convert " + str(ulog_path) + " to dfs")
         return {}, []
@@ -290,10 +283,31 @@ def convert_to_dfs_ulog(ulog_path, specific_tables=[], only_col_names=False, mes
     else: return [msg.name for msg in log.data_list]
 
 def replace_nulls(df):
+    '''
+    Replace null values with 0s
+
+    Parameters:
+        df (pd.DataFrame) : data dataframe
+        
+    Returns:
+        new_df (pd.DataFrame) : dataframe with no nulls
+    '''
+
     new_df = df.fillna(0)
     return new_df
 
 def split_features(full_parsed):
+    '''
+    Splits mapped data into individual feature names for each ulog and
+    ensures that each parsing has the same number of features
+
+    Parameters:
+        full_parsed (dict) : mapped data
+        
+    Returns:
+        new_parsed (dict) : split data
+    '''
+
     print("Splitting Features")
     for key, value in full_parsed.items():
         for k in list(full_parsed[key].keys()):
@@ -321,33 +335,42 @@ def split_features(full_parsed):
 
     most_features = max(keys_dict, key=keys_dict.get)
 
-    # print(most_features)
-    # print(keys_dict[most_features])
 
     new_parsed = {}
     for key, value in full_parsed.items():
         if full_parsed[key].keys() == set(most_features):
             new_parsed[key] = value
 
-    print(len(new_parsed))
-
-
 
     return new_parsed
 
-def get_labels(ids, indexable_meta, label_name="type"):
+def get_labels(ids):
+    '''
+    Returns the labels (drone type) for each ulog given the ids
 
-    if label_name == "type":
-        encode_dict = {"Quadrotor": 0, "Fixed Wing": 1, "Hexarotor": 2}
-        labels = [encode_dict[indexable_meta[id]["type"]] for id in ids]
-    elif label_name == "flightMode":
-        # all mission flights were manual: Counter({1: 12284})
-        only_missions = [id for id in ids if "Mission" in indexable_meta[id]["flightModes"]] 
-        labels = [0 if "Manual" in only_missions else 1 for id in ids]
+    Parameters:
+        ids (list) : list of ulog ids
+
+    Returns:
+        labels (list) : list of drone types
+    '''
+
+    encode_dict = {"Quadrotor": 0, "Fixed Wing": 1, "Hexarotor": 2}
+    labels = [encode_dict[indexable_meta[id]["type"]] for id in ids]
 
     return labels
 
 def get_mins_maxes(full_parsed):
+    '''
+    Returns the minimum and maximum timestamp for each flights
+
+    Parameters:
+        full_parsed (dict) : mapped data
+        
+    Returns:
+        mins_maxes (dict) : the minimum and maximum timestamp for each flight
+    '''
+
     mins_maxes = {}
 
 
@@ -365,32 +388,21 @@ def get_mins_maxes(full_parsed):
 
         mins_maxes[key] = [ulog_min, ulog_max]
 
-    # with open(work_dir + "new_durations.txt", "rb") as f:
-    #     durations = pickle.load(f)
-
-    # for key, value in full_parsed.items():
-    #     if durations[key] != "parsing error":
-    #         ulog_min = durations[key][0]
-    #         ulog_max = durations[key][1]
-
-    #     else:
-    #         ulog_max = 0
-    #         ulog_min = float('inf')
-    #         for key_2, value_2 in full_parsed[key].items():
-    #             min = full_parsed[key][key_2][0]["timestamp"].min()
-    #             max = full_parsed[key][key_2][0]["timestamp"].max()
-                
-    #             if min < ulog_min:
-    #                 ulog_min = min
-    #             if max > ulog_max:
-    #                 ulog_max = max
-
-    #     mins_maxes[key] = [ulog_min, ulog_max]
-
     return mins_maxes
 
 def create_intervals(full_parsed, num_t_ints=50):
-    print("Creating Intervals")
+    '''
+    Finds the timestamp boundaries when dividing a up a flight into a certain
+    number of intervals
+
+    Parameters:
+        full_parsed (dict) : mapped data
+        num_t_ints (int) : number of intervals
+        
+    Returns:
+        intervals (dict) : the timestamp boundaries for each divided flight
+    '''
+    
     intervals = {}
     mins_maxes = get_mins_maxes(full_parsed)
     for key, value in full_parsed.items():
@@ -401,45 +413,22 @@ def create_intervals(full_parsed, num_t_ints=50):
     return intervals
                 
 
-def timestamp_shorten(full_parsed, keep_percentage, beg_mid_end):
-    # Get the current mins and maxes of each ulog
-    mins_maxes = get_mins_maxes(full_parsed)
-    full_parsed_copy = copy.deepcopy(full_parsed)
-    for key, value in full_parsed_copy.items():
-        ulog_min = round(mins_maxes[key][0])
-        ulog_max = round(mins_maxes[key][1])
-
-        if beg_mid_end == None:
-            added_amount = round((ulog_max - ulog_min) * (keep_percentage/100))
-            start = random.randint(ulog_min, ulog_max - added_amount)
-            end = start + added_amount
-        else:
-            third = round((ulog_max - ulog_min) * (0.33))
-            if beg_mid_end == "beg":
-                start = ulog_min
-                end = start + third
-            elif beg_mid_end == "mid":
-                start = ulog_min + third
-                end = start + third
-            elif beg_mid_end == "end":
-                start = ulog_min + 2*third
-                end = ulog_max               
-
-        # print(ulog_min)
-        # print(ulog_max)
-        # print(beginning)
-        # print(end)
-
-        # print(full_parsed_copy[key]['rpy_angles | roll_body'])
-
-        for key_2, value_2 in full_parsed_copy[key].items():
-            full_parsed_copy[key][key_2] = [full_parsed_copy[key][key_2][0][full_parsed_copy[key][key_2][0]['timestamp'].between(start, end)]]
-
-        # print(full_parsed_copy[key]['rpy_angles | roll_body'])
-
-    return full_parsed_copy
-
 def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50, beg_mid_end=None):
+    '''
+    Sampling technique that divides flight into equal width intervals and averages
+    values
+
+    Parameters:
+        full_parsed (dict) : mapping of flight ids to data
+        keep_percentage (int) : percentage of flight that is kept
+        num_t_ints (int) : number of intervals
+        beg_mid_end (string) : if we remove from the beginning, middle, or end of flight
+
+    Returns:
+        X (list) : timestamp binned data
+    '''
+    
+
     print("Timestamp Binning")
     X = []
 
@@ -663,7 +652,7 @@ def preprocess_data(X_file, y_file, saved_parse=None, parse_id="", feats_subset=
 
     # full_parsed_split = split_features(full_parsed)
 
-    y = get_labels(list(full_parsed.keys()), indexable_meta)
+    y = get_labels(list(full_parsed.keys()))
 
     # print(Counter(y))
     # full_parsed = dict(list(full_parsed.items())[:10]) 
@@ -733,6 +722,33 @@ def get_stored_data(num_tables, num_t_ints=50, percentage=100, beg_mid_end="", X
     return X, y
 
 ################################################## INPUT DATA MODIFICATION ########################################################
+def timestamp_shorten(full_parsed, keep_percentage, beg_mid_end):
+    mins_maxes = get_mins_maxes(full_parsed)
+    full_parsed_copy = copy.deepcopy(full_parsed)
+    for key, value in full_parsed_copy.items():
+        ulog_min = round(mins_maxes[key][0])
+        ulog_max = round(mins_maxes[key][1])
+
+        if beg_mid_end == None:
+            added_amount = round((ulog_max - ulog_min) * (keep_percentage/100))
+            start = random.randint(ulog_min, ulog_max - added_amount)
+            end = start + added_amount
+        else:
+            third = round((ulog_max - ulog_min) * (0.33))
+            if beg_mid_end == "beg":
+                start = ulog_min
+                end = start + third
+            elif beg_mid_end == "mid":
+                start = ulog_min + third
+                end = start + third
+            elif beg_mid_end == "end":
+                start = ulog_min + 2*third
+                end = ulog_max               
+
+        for key_2, value_2 in full_parsed_copy[key].items():
+            full_parsed_copy[key][key_2] = [full_parsed_copy[key][key_2][0][full_parsed_copy[key][key_2][0]['timestamp'].between(start, end)]]
+
+    return full_parsed_copy
 
 def get_augmented_data(X, y, augment_percent=None):
     X_quad = []
@@ -782,6 +798,21 @@ def get_augmented_data(X, y, augment_percent=None):
     return X_aug, y_aug
 
 def feature_index(num_tables, indices):
+    '''
+    Applies normalization to train and test data
+
+    Parameters:
+        X_train (np.array) : train data from sklearn's train_test_split() function
+        X_test (np.array) : test data from sklearn's train_test_split() function
+        scaler_type (string) : sklearn's standard or min max scaler
+        independent (bool) : if data standardizes based on a global standard deviation and mean
+        rather than a local one based on current flight
+
+     Returns:
+        X_train (np.array) : modified train data
+        X_test(np.array) : modified test data   
+    '''
+
     X, _ = get_stored_data(num_tables)
 
     new_X = np.array(X)[:, indices, :]
@@ -789,6 +820,21 @@ def feature_index(num_tables, indices):
     return new_X.tolist()
 
 def standardize_data(X_train, X_test, scaler_type="standard", independent=False):
+    '''
+    Applies normalization to train and test data
+
+    Parameters:
+        X_train (np.array) : train data from sklearn's train_test_split() function
+        X_test (np.array) : test data from sklearn's train_test_split() function
+        scaler_type (string) : sklearn's standard or min max scaler
+        independent (bool) : if data standardizes based on a global standard deviation and mean
+        rather than a local one based on current flight
+
+     Returns:
+        X_train (np.array) : modified train data
+        X_test(np.array) : modified test data   
+    '''
+
     if scaler_type == "standard":
         scaler = StandardScaler()
     elif scaler_type == "min_max":
@@ -825,6 +871,20 @@ def standardize_data(X_train, X_test, scaler_type="standard", independent=False)
     return X_train, X_test
 
 def apply_sampling(X, y, sample_method, sample_ratio):
+    '''
+    Applies oversampling and undersampling technique to provided data
+
+    Parameters:
+        X (list) : flight data as lists
+        y (list) : flight labels
+        sample_method (string) : the sampling method
+        sample_ratio (int) : percentage to undersample or oversample
+
+    Returns:
+        X_resampled (np.array) : modified data
+        y_resampled (np.array) : modified data
+    '''
+
     ratio_dict = {}
     distribution = Counter(y)
     for i in range(len(sample_ratio)):
@@ -863,5 +923,54 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+# Deprecated functions
+
+# def look_for_feature(dfs, features):
+#     flag = False
+#     found_feature = []
+    
+#     for feature in features:
+#         for x in list(dfs.keys()):
+#             for y in list(dfs[x][0].columns):
+#                 if feature == y and x not in found_feature:
+#                     found_feature.append(x)
+            
+                
+#     return found_feature
+
+# def get_desired_feats():
+#     '''
+        
+#     Returns:
+#         desired_feats () :
+#     '''
+
+#     desired_feats = []
+#     for i in range(len(feat_list)):
+#         desired_feats += feat_list[i]["table name"]
+
+#     return desired_feats
+
+
+# def get_n_feats_matched(names):
+#     '''
+
+#     Parameters:
+#         names () :
+        
+#     Returns:
+#         matched_feats () :
+#     '''
+
+#     desired_feats = set(get_desired_feats())
+
+#     matched = desired_feats.intersection(set(names))
+
+#     return list(matched)
+
+
 
 
