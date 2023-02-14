@@ -37,7 +37,7 @@ In general, data is obtained and parsed from the raw flight data through the fol
 
 ```
 cd px4-Ulog-Parsers
-python TarikDataFetcher.py
+python data_fetcher.py
 ```
 
 These commands will download the data into a folder called 'dataDownloaded', containing raw px4 files. You can alter the file to modify the amount of data downloaded and the types of drones.
@@ -52,9 +52,11 @@ This command will produce a mapping of flight ids to dataframes containing the d
 
 3. Using already parsed data (approach 2), doing this step instead of 2 will lead to the results from the experiments
 
+The file 'parsed_data.txt' contains the mapping of flight ids to their dataframes of data. This data is then binned using the desired sampling method and produces X and y data for the model. 
 
+### Experiments
 
-4. Generating results from parsed data
+1. Generating results from parsed data
 
 Parse files are pickled since it takes quite long. Doing so prevents repeating the process many times during the experiments. Once you
 have the parsings you can run the bash script provided reproduce the results from the experiments.
@@ -64,4 +66,4 @@ chmod +x experiments_official_final.sh
 source experiments_official_final.sh
 ```
 
-This script contains all the configurations used in the paper for the different timestamp sampling and class imbalance methods.
+This script contains all the configurations used in the paper for the different timestamp sampling and class imbalance methods. Create directories called 'official_experiments/sampling' and 'official_experiments//handling_imbalances' to save the full results of the experiments. For the sampling experiment, the parsed file is sampled accordingly and produces an X and y data file, which is fed into the model. Each csv file contains the classification report from each of the 10 folds of the experiment, the standard deviation average, and fold average.
