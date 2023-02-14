@@ -19,10 +19,8 @@ import copy
 from imblearn.over_sampling import RandomOverSampler, SMOTE
 from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, ClusterCentroids
 
-work_dir = "../../../work/uav-ml/"
-ulog_folder = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloaded"
-ulog_folder_hex = "../../../work/uav-ml/px4-Ulog-Parsers/dataDownloadedHex"
-
+work_dir = "/px4-Ulog-Parsers/"
+ulog_folder = "dataDownloaded/"
 
 ################################################## FEATURE EXTRACTION/SELECTION ########################################################
 
@@ -203,11 +201,6 @@ def get_filtered_ids():
     '''
 
     ulogs_downloaded = os.listdir(ulog_folder)
-    ulogs_downloaded_hex = os.listdir(ulog_folder_hex)
-
-
-    ulogs_downloaded = ulogs_downloaded_hex + ulogs_downloaded 
-
 
     drone_ids = [u[:-4] for u in ulogs_downloaded]
 
@@ -548,16 +541,11 @@ def feature_select(parse_id="", feats_subset=None):
     full_parsed = {}
     count = 0
 
+    # _, keys = get_desired_distribution({key:{} for key in filtered_ids}, filtered_ids, 1000, 500, 500)
 
-    _, keys = get_desired_distribution({key:{} for key in filtered_ids}, filtered_ids, 1000, 500, 500)
-
-    print(len(keys))
 
     for u in keys:
-        if indexable_meta[u]["type"] == "Hexarotor":
-            ulog_path = os.path.join(ulog_folder_hex, u + ".ulg")
-        else:
-            ulog_path = os.path.join(ulog_folder, u + ".ulg")
+        ulog_path = os.path.join(ulog_folder, u + ".ulg")
 
         dfs, names = convert_to_dfs_ulog(ulog_path)
 
@@ -568,7 +556,6 @@ def feature_select(parse_id="", feats_subset=None):
 
             print("Feature selected: " + str(count))
             distribution = get_distribution(list(full_parsed.keys()))
-            print(distribution)
 
             count += 1
         except:
@@ -618,10 +605,7 @@ def feature_select_from_paper(parse_id="", feats_subset=None, num_tables=7):
     full_parsed = {}
     count = 0
     for u in filtered_ids:
-        if indexable_meta[u]["type"] == "Hexarotor":
-            ulog_path = os.path.join(ulog_folder_hex, u + ".ulg")
-        else:
-            ulog_path = os.path.join(ulog_folder, u + ".ulg")
+        ulog_path = os.path.join(ulog_folder, u + ".ulg")
 
         dfs, names = convert_to_dfs_ulog(ulog_path)
 
@@ -629,9 +613,6 @@ def feature_select_from_paper(parse_id="", feats_subset=None, num_tables=7):
             feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
 
             full_parsed[u] = feature_dict
-            # print(feats_subset)
-            # print(names)
-            # print(feature_dict.keys())
 
         print("Feature selected: " + str(count) + "/" + str(len(filtered_ids)))
         count += 1
@@ -653,9 +634,6 @@ def preprocess_data(X_file, y_file, saved_parse=None, parse_id="", feats_subset=
     # full_parsed_split = split_features(full_parsed)
 
     y = get_labels(list(full_parsed.keys()))
-
-    # print(Counter(y))
-    # full_parsed = dict(list(full_parsed.items())[:10]) 
 
     X = timestamp_bin(full_parsed)
 
@@ -712,17 +690,23 @@ def get_stored_data(num_tables, num_t_ints=50, percentage=100, beg_mid_end="", X
     with open(Y_data_file, 'rb') as f:
         y = pickle.load(f) 
 
-    # Counter({0: 9255, 1: 359})
-    # print(Counter(y))
-
-    # one broken instance
-    # X.pop(2898)
-    # y.pop(2898)
 
     return X, y
 
 ################################################## INPUT DATA MODIFICATION ########################################################
 def timestamp_shorten(full_parsed, keep_percentage, beg_mid_end):
+    '''
+    Applies data augmentation on data
+
+    Parameters:
+        full_parsed (dict) : mapping of flight ids to data
+        keep_percentage (int) : percentage of flight that is kept
+        beg_mid_end (string) : if we remove from the beginning, middle, or end of flight
+
+     Returns:
+       full_parsed_copy (dict) : shorten timestamp data
+    '''
+
     mins_maxes = get_mins_maxes(full_parsed)
     full_parsed_copy = copy.deepcopy(full_parsed)
     for key, value in full_parsed_copy.items():
@@ -751,6 +735,19 @@ def timestamp_shorten(full_parsed, keep_percentage, beg_mid_end):
     return full_parsed_copy
 
 def get_augmented_data(X, y, augment_percent=None):
+    '''
+    Applies data augmentation on data
+
+    Parameters:
+        X (list) : flight data as lists
+        y (list) : flight labels
+        augment_percent (float) : how much to augment the minority class 
+
+     Returns:
+        X_aug (np.array) : modified data
+        y_aug (np.array) : modified data   
+    '''
+
     X_quad = []
     X_fixed = []
     y_quad = []
@@ -796,28 +793,6 @@ def get_augmented_data(X, y, augment_percent=None):
     # print(len(X_hex_aug))
 
     return X_aug, y_aug
-
-def feature_index(num_tables, indices):
-    '''
-    Applies normalization to train and test data
-
-    Parameters:
-        X_train (np.array) : train data from sklearn's train_test_split() function
-        X_test (np.array) : test data from sklearn's train_test_split() function
-        scaler_type (string) : sklearn's standard or min max scaler
-        independent (bool) : if data standardizes based on a global standard deviation and mean
-        rather than a local one based on current flight
-
-     Returns:
-        X_train (np.array) : modified train data
-        X_test(np.array) : modified test data   
-    '''
-
-    X, _ = get_stored_data(num_tables)
-
-    new_X = np.array(X)[:, indices, :]
-
-    return new_X.tolist()
 
 def standardize_data(X_train, X_test, scaler_type="standard", independent=False):
     '''
@@ -913,16 +888,11 @@ def apply_sampling(X, y, sample_method, sample_ratio):
 
     # print(X_resampled.shape)
 
-    return X_resampled, y_resampled
-
-
-
-def main():
-    X, y = preprocess_data()
+    return X_resampled, y_resampled    
 
 
 if __name__ == "__main__":
-    main()
+   X, y = preprocess_data()
 
 
 

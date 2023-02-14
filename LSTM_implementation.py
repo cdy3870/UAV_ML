@@ -274,7 +274,6 @@ def main():
 	# modify x
 	parser.add_argument("-p", "--shorten_percent", type=int, help="percentage to keep of timestamps")
 	parser.add_argument("-bme", "--beg_mid_end", type=str, help="beginning, middle, or end of timestamps")	
-	parser.add_argument('-i','--indices', nargs='+', help='select indices from parsed features')
 	parser.add_argument('-a','--augment', type=int, help='augment train set (fixed wing) percentage')
 	parser.add_argument('-in','--independent', action="store_true", help='standardize time series independently')
 	parser.add_argument('-ints','--intervals', type=int, help='number of timestamp intervals', default=50)
@@ -300,8 +299,6 @@ def main():
 	print(args.X_path)
 	if args.X_path != None and args.Y_path != None:
 		X, y = dp.get_stored_data(args.n_tables, X_path=args.X_path, Y_path=args.Y_path)
-	elif args.indices != None:
-		X = dp.feature_index(args.n_tables, list(map(int, args.indices)))
 	elif args.sample_method == "rus_full":
 		sample_ratio = args.rus_ratio/100
 		X, y = dp.get_stored_data(args.n_tables, num_t_ints=args.intervals)
