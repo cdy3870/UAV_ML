@@ -46,7 +46,7 @@ This command will produce a mapping of flight ids to dataframes containing the d
 
 3. Using already parsed data (approach 2)
 
-The file 'parsed_data.txt' contains the mapping of flight ids to their dataframes of data using the features that resulted in the best performance (reference paper feats). This data is then binned using the desired sampling method and produces X and y data for the model. 
+Contact yu.calv@northeastern.edu to get access to this file. The file 'parsed_data.txt' contains the mapping of flight ids to their dataframes of data using the features that resulted in the best performance (reference paper feats). This data is then binned using the desired sampling method and produces X and y data for the model. 
 
 ### Experiments
 
