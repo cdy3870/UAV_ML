@@ -18,42 +18,12 @@ import random
 import copy
 from imblearn.over_sampling import RandomOverSampler, SMOTE
 from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, ClusterCentroids
+import argparse
 
-work_dir = "/px4-Ulog-Parsers/"
-ulog_folder = "dataDownloaded/"
-
-################################################## FEATURE EXTRACTION/SELECTION ########################################################
-
-feat_list = [
-            {"desc": "pos | local position", "table name": ["vehicle_local_position"], "feat(s) name(s)": "loc_pos", "feat(s)": ["x", "y", "z"]},
-    
-            {"desc": "pos | ground speed", "table name": ["sensor_gps", "vehicle_gps_position"], "feat(s) name(s)": "ground_speed", "feat(s)": ["vel_n_m_s", "vel_e_m_s", "vel_d_m_s"]},
-    
-            {"desc": "pos | roll, pitch, yaw angles", "table name": ["vehicle_attitude_setpoint"], "feat(s) name(s)": "rpy_angles", "feat(s)": ["roll_body", "pitch_body", "yaw_body"]},
-    
-            {"desc": "pos | roll, pitch, yaw speeds ", "table name": ["vehicle_rates_setpoint", "rollspeed"], "feat(s) name(s)": "rpy_speeds", "feat(s)": ["roll", "pitch", "yaw"]},
-    
-            {"desc": "pos | relative altitude", "table name": ["home_position"], "feat(s) name(s)": "rel_alt", "feat(s)": ["alt"]},
-    
-            {"desc": "pos | local altitude", "table name": ["sensor_gps", "vehicle_gps_position"], "feat(s) name(s)": "loc_alt", "feat(s)": ["alt"]},
-    
-            {"desc": "pos | quaternion", "table name": ["vehicle_attitude_setpoint"], "feat(s) name(s)": "quat", "feat(s)": ["q_d[0]", "q_d[1]", "q_d[2]", "q_d[3]"]},
-    
-            {"desc": "imu | acceleration", "table name": ["sensor_accel"], "feat(s) name(s)": "accel", "feat(s)": ["x", "y", "z"]},
-    
-            {"desc": "imu | angular speed", "table name": ["sensor_gyro"], "feat(s) name(s)": "ang_speed", "feat(s)": ["x", "y", "z"]},
-    
-            {"desc": "imu | magnetic field", "table name": ["sensor_mag"], "feat(s) name(s)": "mag_field", "feat(s)": ["x", "y", "z"]},
-    
-            {"desc": "imu | absolute pressure", "table name": ["vehicle_air_data"], "feat(s) name(s)": "abs_pressure", "feat(s)": ["baro_pressure_pa"]},
-    
-            {"desc": "imu | pressure altitude", "table name": ["vehicle_air_data"], "feat(s) name(s)": "pressure_alt", "feat(s)": ["baro_alt_meter"]},
-    
-            {"desc": "sys | battery temperature", "table name": ["battery_status"], "feat(s) name(s)": "batt_temp", "feat(s)": ["temperature"]},
-    
-            {"desc": "sys | heading", "table name": ["vehicle_local_position"], "feat(s) name(s)": "heading", "feat(s)": ["heading"]},
-    
-            {"desc": "sys | throttle", "table name": ["manual_control_setpoint"], "feat(s) name(s)": "throttle", "feat(s)": ["z"]}]
+work_dir = "../../../work/uav-ml/px4-Ulog-Parsers/"
+# work_dir = "px4-Ulog-Parsers/"
+ulog_folder = os.path.join(work_dir, "dataDownloaded")
+json_file = os.path.join(work_dir, "MetaLogs.json")
 
 
 def get_indexable_meta(meta_json):
@@ -76,102 +46,37 @@ def get_indexable_meta(meta_json):
         
     return indexable_meta
 
-json_file = "../../../work/uav-ml/px4-Ulog-Parsers/MetaLogs.json"
 with open(json_file, 'r') as inputFile:
     meta_json = json.load(inputFile)
 indexable_meta = get_indexable_meta(meta_json)
 
-def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_name, cols):
-    '''
 
-    Parameters:
-        dfs
-        parsed_names
-        feature_dict
-        table_name
-        feature_name
-        cols
-    '''
-
-    spec_df = []
-    if len(table_name) > 1:
-        for t in table_name:
-            try:
-                spec_df = dfs[table_name] 
-            except:
-                pass
-        if len(spec_df) == 0:
-            return
-    else:
-        # table not found
-        if table_name[0] not in dfs.keys():
-            return
-
-        spec_df = dfs[table_name[0]] 
-        
-        # if specific feature not found
-        if cols[0] not in list(spec_df[0].columns):
-            return
-
-    # for d in spec_df:
-    if table_name[0] not in feature_dict:
-        feature_dict[feature_name] = [spec_df[0][["timestamp"] + cols]]
-    else:
-        feature_dict[feature_name].append(spec_df[0][["timestamp"] + cols])
-            
 
 def extract_individual(dfs, feats_subset):
     '''
     Returns chunk of data between two timestamps
 
     Parameters:
-        dfs () : 
-        feats_subset () :
+        dfs (dict) : parsed ulog files, mapping of ids to data 
+        feats_subset (list) : individual feature names that you want
         
     Returns:
-        feature_dict () :
+        feature_dict (dict) : mapping of feature name to its data
     '''
 
     feature_dict = {}
     for feat in feats_subset:
-        # print(feat)
+        
         strings = feat.split(" ")
         table_name = strings[0]
         feat_name = strings[2]
-
-        feature_dict[feat] = [dfs[table_name][0][["timestamp"] + [feat_name]]]
-
-
-    return feature_dict
-     
-
-def extract_from_tables(dfs, parsed_names, feats_subset=None):
-    '''
-
-    Parameters:
-        dfs () :
-        parsed_names () :
-        feats_subset () :
-        
-    Returns:
-        feature_dict () :
-    '''
-
-    feature_dict = {}
-
-    if feats_subset == None:
-        for feats in feat_list:  
-            update_feature_dict(dfs, parsed_names, feature_dict, feats["table name"], feats["feat(s) name(s)"], feats["feat(s)"])
-    else:
-        for feats in feat_list:  
-            for f in feats["table name"]:
-                if f in feats_subset:
-                    update_feature_dict(dfs, parsed_names, feature_dict, feats["table name"], feats["feat(s) name(s)"], feats["feat(s)"])
-                    break
+        try:
+            feature_dict[feat] = [dfs[table_name][0][["timestamp"] + [feat_name]]]
+        except:
+            continue
 
 
     return feature_dict
-
 
 def get_distribution(ids):
     '''
@@ -220,13 +125,12 @@ def convert_to_dfs_ulog(ulog_path, specific_tables=[], only_col_names=False):
         only_col_names (bool) : only return the topics of a ulog and not its data
 
     Returns:
-        dataframes () :
+        dataframes (dict) : mapping of ulog ids to data
     '''
 
     try:
-        log = pyulog.ULog(ulog_path, messages=None)
+        log = pyulog.ULog(ulog_path)
     except:
-        print("failed to convert " + str(ulog_path) + " to dfs")
         return {}, []
 
     # column naming
@@ -300,6 +204,8 @@ def split_features(full_parsed):
     Returns:
         new_parsed (dict) : split data
     '''
+
+    print(full_parsed)
 
     print("Splitting Features")
     for key, value in full_parsed.items():
@@ -485,70 +391,28 @@ def timestamp_bin(full_parsed, keep_percentage=100, num_t_ints=50, beg_mid_end=N
 
     return X
 
-def get_desired_distribution(full_parsed_split, ids, total_quads=None, total_fixed=None, total_hex=None):
-    distribution = get_distribution(ids)
+def feature_extract(parse_file="", feats_subset=None):
+    '''
+    Extracts features from all filtered ids and saves as a parsing
 
-    new_parsed = {}
-    new_y = []
-
-    if total_quads == None and total_fixed == None and total_hex == None:  
-        total_quads = 1000
-        total_fixed = distribution["Fixed Wing"]
-        total_hex = distribution["Hexarotor"]
-    else:
-        total_quads = min(total_quads, distribution["Quadrotor"])
-        total_fixed = min(total_fixed, distribution["Fixed Wing"])
-        total_hex = min(total_hex, distribution["Hexarotor"])
-
-
-    quad_count = 0
-    fixed_count = 0
-    hex_count = 0
-    keys = []
-
-    for key in full_parsed_split.keys():
-        type = indexable_meta[key]["type"]
-        if type == "Quadrotor":
-            if quad_count < total_quads:
-                new_parsed[key] = full_parsed_split[key]
-                new_y.append(0)
-                keys.append(key)    
-            quad_count += 1
-
-        elif type == "Fixed Wing":
-            if fixed_count < total_fixed:
-                new_parsed[key] = full_parsed_split[key]
-                new_y.append(1)
-                keys.append(key)    
-            fixed_count += 1
-
-        else:
-            if hex_count < total_hex:
-                new_parsed[key] = full_parsed_split[key]
-                new_y.append(2)
-                keys.append(key)    
-            hex_count += 1      
-
-
-
-        if quad_count == total_quads and fixed_count == total_fixed and hex_count == total_hex:
-            break
-
-    return new_parsed, keys
-
-def feature_select(parse_id="", feats_subset=None):
+    Parameters:
+        parse_id (dict) : name of saved parsed file
+        feats_subset (list) : individual feature names that you want
+        
+    Returns:
+        full_parsed (dict) : mapped data
+    '''
+    
     filtered_ids = get_filtered_ids()
     full_parsed = {}
     count = 0
 
-    # _, keys = get_desired_distribution({key:{} for key in filtered_ids}, filtered_ids, 1000, 500, 500)
-
-
-    for u in keys:
+    for u in filtered_ids:
         ulog_path = os.path.join(ulog_folder, u + ".ulg")
 
         dfs, names = convert_to_dfs_ulog(ulog_path)
 
+        feature_dict = extract_individual(dfs, feats_subset=feats_subset)
 
         try:
             feature_dict = extract_individual(dfs, feats_subset=feats_subset)
@@ -561,92 +425,47 @@ def feature_select(parse_id="", feats_subset=None):
         except:
             continue
 
+    # print(full_parsed)
+
+    full_parsed_split = split_features(full_parsed)
+
+    with open(parse_file, 'wb') as f:
+        pickle.dump(full_parsed_split, f)
+
+    return full_parsed_split
 
 
-    parsed_file = "full_parsed_" + parse_id + ".txt"
-    with open(parsed_file, 'wb') as f:
-        pickle.dump(full_parsed, f)
-
-    return full_parsed
-
-def feature_select_from_paper(parse_id="", feats_subset=None, num_tables=7):
-    print("Feature Selecting")
 
 
-    if feats_subset == None:
-        with open("ids_matchedfeats.txt", 'rb') as f:
-            ids_matchedfeats_dict = pickle.load(f)
+def preprocess_data(parse_file=None, parse_id="", feats_subset=None):
+    '''
+    Performs feature extraction
 
-        test = []
+    Parameters:
+        parse_file (string) : name of saved parsing if you want to skip that part
+        feats_subset (list) : list of feature you want to extract
+    '''
 
+    full_parsed = feature_extract(parse_file=parse_file, feats_subset=feats_subset)
+    print(full_parsed)
+    full_parsed_split = split_features(full_parsed)
+    with open(parse_file, 'wb') as f:
+        pickle.dump(full_parsed_split, f)   
 
-        ids_file = "new_filtered_ids_" + str(num_tables) + ".txt"
+    # y = get_labels(list(full_parsed.keys()))
 
-        with open(ids_file, 'rb') as f:
-            test = pickle.load(f)
-
-        new_filtered_ids = []
-        for u in test:
-            # print(u)
-            try:
-                asdf = ids_matchedfeats_dict[u]
-                new_filtered_ids.append(u)
-            except:
-                pass
-
-            parsed_file = "full_parsed_" + str(num_tables) + ".txt"
-            feats_subset = test[0]
-
-    print(feats_subset)
+    # X = timestamp_bin(full_parsed)
 
 
-    filtered_ids = get_filtered_ids()
-
-    full_parsed = {}
-    count = 0
-    for u in filtered_ids:
-        ulog_path = os.path.join(ulog_folder, u + ".ulg")
-
-        dfs, names = convert_to_dfs_ulog(ulog_path)
-
-        if len(set(names).intersection(feats_subset)) == len(feats_subset):
-            feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
-
-            full_parsed[u] = feature_dict
-
-        print("Feature selected: " + str(count) + "/" + str(len(filtered_ids)))
-        count += 1
-
-    parsed_file = "full_parsed_" + str(num_tables) + "_" + parse_id + ".txt"
-    with open(parsed_file, 'wb') as f:
-        pickle.dump(full_parsed, f)
-
-    return full_parsed
+    # with open(X_file, 'wb') as f:
+    #     pickle.dump(X, f)
 
 
-def preprocess_data(X_file, y_file, saved_parse=None, parse_id="", feats_subset=None):
-    if saved_parse != None:
-        with open(saved_parse, 'rb') as f:
-            full_parsed = pickle.load(f)
-    else:
-        full_parsed = feature_select(parse_id=parse_id, feats_subset=feats_subset)
-
-    # full_parsed_split = split_features(full_parsed)
-
-    y = get_labels(list(full_parsed.keys()))
-
-    X = timestamp_bin(full_parsed)
+    # with open(y_file, 'wb') as f:
+    #     pickle.dump(y, f)
 
 
-    with open(X_file, 'wb') as f:
-        pickle.dump(X, f)
-
-
-    with open(y_file, 'wb') as f:
-        pickle.dump(y, f)
-
-
-    return X, y
+    # return X, y
 
 
 
@@ -891,12 +710,87 @@ def apply_sampling(X, y, sample_method, sample_ratio):
     return X_resampled, y_resampled    
 
 
+def main():
+    base_feats = ['vehicle_local_position | x', 'vehicle_local_position | y', 'vehicle_local_position | z', 'vehicle_attitude_setpoint | roll_body', 'vehicle_attitude_setpoint | pitch_body', 'vehicle_attitude_setpoint | yaw_body', ]
+    
+    paper_feats = base_feats + ['manual_control_setpoint | throttle', 'sensor_gps | alt', 'battery_status | temperature']
+    subset_0 = base_feats + ['vehicle_gps_position | epv', 'vehicle_local_position | dist_bottom', 'manual_control_setpoint | return_switch', 'manual_control_setpoint | rattitude_switch', 'vehicle_local_position | xy_reset_counter']
+    subset_1 = base_feats + ['vehicle_local_position | az', 'vehicle_gps_position | hdop', 'vehicle_local_position | ax', 'vehicle_gps_position | eph', 'vehicle_gps_position | vdop']
+    subset_2 = base_feats + ['manual_control_setpoint | stab_switch', 'vehicle_local_position | vxy_max', 'home_position | valid_alt', 'vehicle_gps_position | lon', 'home_position | lon']
+    mapping = {-1:paper_feats,
+                0:subset_0,
+                1:subset_1,
+                2:subset_2}
+
+    parser = argparse.ArgumentParser()
+
+    # parser.add_argument("-X", "--X_file", type=str, help="name of x data file", default="X_data.txt")
+    # parser.add_argument("-y", "--y_file", type=str, help="name of y data file", default="y_data.txt")
+    parser.add_argument("-s", "--parse_file", type=str, help="name of parse file", default="parsed_data.txt")    
+    parser.add_argument("-f", "--feats_used", type=int, help="-1, 0, 1, 2, feature subset used", default=-1)
+
+
+    args = parser.parse_args()
+
+    full_parsed = feature_extract(args.parse_file, mapping[args.feats_used])
+
 if __name__ == "__main__":
-   X, y = preprocess_data()
+    main()
 
 
 
 # Deprecated functions
+
+# def get_desired_distribution(full_parsed_split, ids, total_quads=None, total_fixed=None, total_hex=None):
+#     distribution = get_distribution(ids)
+
+#     new_parsed = {}
+#     new_y = []
+
+#     if total_quads == None and total_fixed == None and total_hex == None:  
+#         total_quads = 1000
+#         total_fixed = distribution["Fixed Wing"]
+#         total_hex = distribution["Hexarotor"]
+#     else:
+#         total_quads = min(total_quads, distribution["Quadrotor"])
+#         total_fixed = min(total_fixed, distribution["Fixed Wing"])
+#         total_hex = min(total_hex, distribution["Hexarotor"])
+
+
+#     quad_count = 0
+#     fixed_count = 0
+#     hex_count = 0
+#     keys = []
+
+#     for key in full_parsed_split.keys():
+#         type = indexable_meta[key]["type"]
+#         if type == "Quadrotor":
+#             if quad_count < total_quads:
+#                 new_parsed[key] = full_parsed_split[key]
+#                 new_y.append(0)
+#                 keys.append(key)    
+#             quad_count += 1
+
+#         elif type == "Fixed Wing":
+#             if fixed_count < total_fixed:
+#                 new_parsed[key] = full_parsed_split[key]
+#                 new_y.append(1)
+#                 keys.append(key)    
+#             fixed_count += 1
+
+#         else:
+#             if hex_count < total_hex:
+#                 new_parsed[key] = full_parsed_split[key]
+#                 new_y.append(2)
+#                 keys.append(key)    
+#             hex_count += 1      
+
+
+
+#         if quad_count == total_quads and fixed_count == total_fixed and hex_count == total_hex:
+#             break
+
+#     return new_parsed, keys
 
 # def look_for_feature(dfs, features):
 #     flag = False
@@ -941,6 +835,158 @@ if __name__ == "__main__":
 
 #     return list(matched)
 
+# Deprecated feature selection methods
+
+# def feature_extract_from_paper(parse_id="", feats_subset=None, num_tables=7):
+#     print("Feature Selecting")
+
+
+#     if feats_subset == None:
+#         with open("ids_matchedfeats.txt", 'rb') as f:
+#             ids_matchedfeats_dict = pickle.load(f)
+
+#         test = []
+
+
+#         ids_file = "new_filtered_ids_" + str(num_tables) + ".txt"
+
+#         with open(ids_file, 'rb') as f:
+#             test = pickle.load(f)
+
+#         new_filtered_ids = []
+#         for u in test:
+#             # print(u)
+#             try:
+#                 asdf = ids_matchedfeats_dict[u]
+#                 new_filtered_ids.append(u)
+#             except:
+#                 pass
+
+#             parsed_file = "full_parsed_" + str(num_tables) + ".txt"
+#             feats_subset = test[0]
+
+#     print(feats_subset)
+
+
+#     filtered_ids = get_filtered_ids()
+
+#     full_parsed = {}
+#     count = 0
+#     for u in filtered_ids:
+#         ulog_path = os.path.join(ulog_folder, u + ".ulg")
+
+#         dfs, names = convert_to_dfs_ulog(ulog_path)
+
+#         if len(set(names).intersection(feats_subset)) == len(feats_subset):
+#             feature_dict = extract_from_tables(dfs, names, feats_subset=feats_subset)
+
+#             full_parsed[u] = feature_dict
+
+#         print("Feature selected: " + str(count) + "/" + str(len(filtered_ids)))
+#         count += 1
+
+#     parsed_file = "full_parsed_" + str(num_tables) + "_" + parse_id + ".txt"
+#     with open(parsed_file, 'wb') as f:
+#         pickle.dump(full_parsed, f)
+
+#     return full_parsed
+
+# def update_feature_dict(dfs, parsed_names, feature_dict, table_name, feature_name, cols):
+#     '''
+#     Updates feature dict with parsed data from paper features
+
+#     Parameters:
+#         dfs (dict) : parsed ulog files, mapping of ids to data
+#         parsed_names ()
+#         feature_dict ()
+#         table_name ()
+#         feature_name ()
+#         cols ()
+#     '''
+
+#     spec_df = []
+#     if len(table_name) > 1:
+#         for t in table_name:
+#             try:
+#                 spec_df = dfs[table_name] 
+#             except:
+#                 pass
+#         if len(spec_df) == 0:
+#             return
+#     else:
+#         # table not found
+#         if table_name[0] not in dfs.keys():
+#             return
+
+#         spec_df = dfs[table_name[0]] 
+        
+#         # if specific feature not found
+#         if cols[0] not in list(spec_df[0].columns):
+#             return
+
+#     # for d in spec_df:
+#     if table_name[0] not in feature_dict:
+#         feature_dict[feature_name] = [spec_df[0][["timestamp"] + cols]]
+#     else:
+#         feature_dict[feature_name].append(spec_df[0][["timestamp"] + cols])
+
+# def extract_from_tables(dfs, parsed_names, feats_subset=None):
+#     '''
+
+#     Parameters:
+#         dfs () :
+#         parsed_names () :
+#         feats_subset () :
+        
+#     Returns:
+#         feature_dict () :
+#     '''
+
+#     feature_dict = {}
+
+#     if feats_subset == None:
+#         for feats in feat_list:  
+#             update_feature_dict(dfs, parsed_names, feature_dict, feats["table name"], feats["feat(s) name(s)"], feats["feat(s)"])
+#     else:
+#         for feats in feat_list:  
+#             for f in feats["table name"]:
+#                 if f in feats_subset:
+#                     update_feature_dict(dfs, parsed_names, feature_dict, feats["table name"], feats["feat(s) name(s)"], feats["feat(s)"])
+#                     break
+
+
+#     return feature_dict
 
 
 
+# feat_list = [
+#             {"desc": "pos | local position", "table name": ["vehicle_local_position"], "feat(s) name(s)": "loc_pos", "feat(s)": ["x", "y", "z"]},
+    
+#             {"desc": "pos | ground speed", "table name": ["sensor_gps", "vehicle_gps_position"], "feat(s) name(s)": "ground_speed", "feat(s)": ["vel_n_m_s", "vel_e_m_s", "vel_d_m_s"]},
+    
+#             {"desc": "pos | roll, pitch, yaw angles", "table name": ["vehicle_attitude_setpoint"], "feat(s) name(s)": "rpy_angles", "feat(s)": ["roll_body", "pitch_body", "yaw_body"]},
+    
+#             {"desc": "pos | roll, pitch, yaw speeds ", "table name": ["vehicle_rates_setpoint", "rollspeed"], "feat(s) name(s)": "rpy_speeds", "feat(s)": ["roll", "pitch", "yaw"]},
+    
+#             {"desc": "pos | relative altitude", "table name": ["home_position"], "feat(s) name(s)": "rel_alt", "feat(s)": ["alt"]},
+    
+#             {"desc": "pos | local altitude", "table name": ["sensor_gps", "vehicle_gps_position"], "feat(s) name(s)": "loc_alt", "feat(s)": ["alt"]},
+    
+#             {"desc": "pos | quaternion", "table name": ["vehicle_attitude_setpoint"], "feat(s) name(s)": "quat", "feat(s)": ["q_d[0]", "q_d[1]", "q_d[2]", "q_d[3]"]},
+    
+#             {"desc": "imu | acceleration", "table name": ["sensor_accel"], "feat(s) name(s)": "accel", "feat(s)": ["x", "y", "z"]},
+    
+#             {"desc": "imu | angular speed", "table name": ["sensor_gyro"], "feat(s) name(s)": "ang_speed", "feat(s)": ["x", "y", "z"]},
+    
+#             {"desc": "imu | magnetic field", "table name": ["sensor_mag"], "feat(s) name(s)": "mag_field", "feat(s)": ["x", "y", "z"]},
+    
+#             {"desc": "imu | absolute pressure", "table name": ["vehicle_air_data"], "feat(s) name(s)": "abs_pressure", "feat(s)": ["baro_pressure_pa"]},
+    
+#             {"desc": "imu | pressure altitude", "table name": ["vehicle_air_data"], "feat(s) name(s)": "pressure_alt", "feat(s)": ["baro_alt_meter"]},
+    
+#             {"desc": "sys | battery temperature", "table name": ["battery_status"], "feat(s) name(s)": "batt_temp", "feat(s)": ["temperature"]},
+    
+#             {"desc": "sys | heading", "table name": ["vehicle_local_position"], "feat(s) name(s)": "heading", "feat(s)": ["heading"]},
+    
+#             {"desc": "sys | throttle", "table name": ["manual_control_setpoint"], "feat(s) name(s)": "throttle", "feat(s)": ["z"]}]
+            

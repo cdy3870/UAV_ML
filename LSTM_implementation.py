@@ -111,7 +111,7 @@ class LSTM(nn.Module):
 
 
 def train(model, train_loader, test_loader, params, verbose=True, target_names=['Quadrotor', 'Fixed Wing'], test_index=None):
-    '''
+	'''
 	Trains the LSTM 
 
 	Parameters:
@@ -203,19 +203,19 @@ def train(model, train_loader, test_loader, params, verbose=True, target_names=[
 
 
 def get_dataloaders(X_train, y_train, X_test, y_test):
-    '''
+	'''
 	Forms datasets and returns dataloaders
 
-    Parameters:
-        X_train (np.array) : train data
-        y_train (np.array) : train labels
-        X_test (np.array) : test data
-        y_test (np.array) : test labels
+	Parameters:
+		X_train (np.array) : train data
+		y_train (np.array) : train labels
+		X_test (np.array) : test data
+		y_test (np.array) : test labels
 
-    Returns:
+	Returns:
 		train_loader (PyTorch.DataLoader) : train dataloader for PyTorch model
 		test_loader (PyTorch.DataLoader) : test dataloader for PyTorch model
-    '''
+	'''
 	train_dataset = UAVDataset(X_train, y_train)
 	test_dataset = UAVDataset(X_test, y_test)
 
@@ -230,17 +230,17 @@ def get_dataloaders(X_train, y_train, X_test, y_test):
 
 
 def get_model(input_size, hidden_size = 128, num_classes=2, num_layers=1):
-    '''
+	'''
 
-    Parameters:
-        input_size (int) : size of input
-        hidden_size (int) : number of nodes in a hidden layer
-        num_classes (int) : number of output classes
-        num_layers (int) : number of LSTM layers
-        
-    Returns:
-        model () :
-    '''
+	Parameters:
+		input_size (int) : size of input
+		hidden_size (int) : number of nodes in a hidden layer
+		num_classes (int) : number of output classes
+		num_layers (int) : number of LSTM layers
+		
+	Returns:
+		model () :
+	'''
 
 	hidden_size = 128
 	num_layers = 1

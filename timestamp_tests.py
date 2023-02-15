@@ -195,60 +195,60 @@ def timestamp_bin_average(full_parsed, num_t_ints=50):
 		X (list) : timestamp binned data
 	'''
 
-    X = []
+	X = []
 
-    intervals = create_intervals(full_parsed, num_t_ints)
-
-
-    count = 0
-    for key, value in full_parsed.items():
-        X_inst = [[0 for i in range(num_t_ints)] for i in range(len(full_parsed[key]))]
-        index = 0
-        # example = full_parsed[id]
-        # print(key)
-
-        temp_dict = {}
-        for key_2, value_2 in full_parsed[key].items():
-            for i in range(full_parsed[key][key_2][0].shape[0]):
-                interval_index = bisect.bisect_left(intervals[key], full_parsed[key][key_2][0].iloc[i]["timestamp"])
-                # print(interval_index)
-                if i == 0:
-                    prev_interval = interval_index
-                    beg_index = 0
-
-                if interval_index != prev_interval:
-                    temp_dict[prev_interval] = (beg_index, i - 1)
-                    beg_index = i
-                    prev_interval = interval_index
+	intervals = create_intervals(full_parsed, num_t_ints)
 
 
-            for i in range(num_t_ints):
-                if i in temp_dict:
-                    left = temp_dict[i][0]
-                    right = temp_dict[i][1]
+	count = 0
+	for key, value in full_parsed.items():
+		X_inst = [[0 for i in range(num_t_ints)] for i in range(len(full_parsed[key]))]
+		index = 0
+		# example = full_parsed[id]
+		# print(key)
 
-                    avg = list(full_parsed[key][key_2][0].iloc[left:right, 1:].mean())[0]
+		temp_dict = {}
+		for key_2, value_2 in full_parsed[key].items():
+			for i in range(full_parsed[key][key_2][0].shape[0]):
+				interval_index = bisect.bisect_left(intervals[key], full_parsed[key][key_2][0].iloc[i]["timestamp"])
+				# print(interval_index)
+				if i == 0:
+					prev_interval = interval_index
+					beg_index = 0
 
-                    if math.isnan(avg):
-                        X_inst[index][i] = 0
-                    else:
-                        X_inst[index][i] = avg
-
-            index += 1
+				if interval_index != prev_interval:
+					temp_dict[prev_interval] = (beg_index, i - 1)
+					beg_index = i
+					prev_interval = interval_index
 
 
+			for i in range(num_t_ints):
+				if i in temp_dict:
+					left = temp_dict[i][0]
+					right = temp_dict[i][1]
+
+					avg = list(full_parsed[key][key_2][0].iloc[left:right, 1:].mean())[0]
+
+					if math.isnan(avg):
+						X_inst[index][i] = 0
+					else:
+						X_inst[index][i] = avg
+
+			index += 1
 
 
-            # print(temp_dict)
-            temp_dict = {}
-        print("Timestamp Binned: " + str(count) + "/" + str(len(full_parsed)) + ", Keep Percentage: " + str(keep_percentage))
 
-        count += 1        
-        X.append(X_inst) 
 
-    # print(np.array(X).shape)
+			# print(temp_dict)
+			temp_dict = {}
+		print("Timestamp Binned: " + str(count) + "/" + str(len(full_parsed)) + ", Keep Percentage: " + str(keep_percentage))
 
-    return X
+		count += 1        
+		X.append(X_inst) 
+
+	# print(np.array(X).shape)
+
+	return X
 
 def equal_width_average_sampling(parse_path, num_t_ints, X_path):
 	'''
@@ -422,18 +422,18 @@ def timestamp_bin_local(full_parsed, num_t_ints=50, window_duration=200):
 	return X
 
 def local_window_averaging_sampling(parse_path, num_t_ints, window_duration, X_path):
-    '''
- 	Local window averaging only averages a designated window after each
+	'''
+	Local window averaging only averages a designated window after each
 	interval instead of averaging over the whole interval   
 
-    Parameters:
+	Parameters:
 		parse_path (string) : path to parse mapping
 		num_t_ints (int) : number of intervals
 		X_path (string) : path to save sampled data
 
 	Returns:
 		X (list) : timestamp binned data
-    '''
+	'''
 
 	with open(parse_path, 'rb') as f:
 		full_parsed = pickle.load(f)
@@ -484,7 +484,7 @@ if __name__ == "__main__":
 #     Parameters:
 #     	full_parsed () :
 #     	num_mins () :
-        
+		
 #     Returns:
 #     	chunked_parse () :
 #     	ids_intervals () :
@@ -535,7 +535,7 @@ if __name__ == "__main__":
 #     	ids_intervals () :
 #     	num_t_ints () :
 #     	chunk_mins () :
-        
+		
 #     Returns:
 # 		X () :
 #     '''
