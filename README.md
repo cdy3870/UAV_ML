@@ -9,16 +9,8 @@ Run the following after cloning the repo:
 
 ```
 conda env create -f environment.yml
-```
-
-Then activate the environment using:
-
-```
 conda activate drone_stuff
 ```
-
-## Data
-
 
 ## Source code
 
@@ -33,7 +25,7 @@ conda activate drone_stuff
 
 In general, data is obtained and parsed from the raw flight data through the following steps:
 
-1. Run the following to download quad, fixed, and hex data:
+1. Run the following to download quad, fixed, and hex data (skip to step 3 if you want to use already parsed data):
 
 ```
 cd px4-Ulog-Parsers
@@ -45,14 +37,16 @@ These commands will download the data into a folder called 'dataDownloaded', con
 2. Parsing raw data (approach 1), doing this step allows you to customize features used
 
 ```
-python data_processing.py
+python data_processing.py -s "parsed_data.txt" -f -1
 ```
+
+Look at the arguments to see the features that can be used. By default, the features that led to the best performance is used.
 
 This command will produce a mapping of flight ids to dataframes containing the desired features.
 
-3. Using already parsed data (approach 2), doing this step instead of 2 will lead to the results from the experiments
+3. Using already parsed data (approach 2)
 
-The file 'parsed_data.txt' contains the mapping of flight ids to their dataframes of data. This data is then binned using the desired sampling method and produces X and y data for the model. 
+The file 'parsed_data.txt' contains the mapping of flight ids to their dataframes of data using the features that resulted in the best performance (reference paper feats). This data is then binned using the desired sampling method and produces X and y data for the model. 
 
 ### Experiments
 
