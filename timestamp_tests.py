@@ -197,7 +197,7 @@ def timestamp_bin_average(full_parsed, num_t_ints=50):
 
 	X = []
 
-	intervals = create_intervals(full_parsed, num_t_ints)
+	intervals = dp.create_intervals(full_parsed, num_t_ints)
 
 
 	count = 0
@@ -241,7 +241,7 @@ def timestamp_bin_average(full_parsed, num_t_ints=50):
 
 			# print(temp_dict)
 			temp_dict = {}
-		print("Timestamp Binned: " + str(count) + "/" + str(len(full_parsed)) + ", Keep Percentage: " + str(keep_percentage))
+		print("Timestamp Binned: " + str(count) + "/" + str(len(full_parsed)))
 
 		count += 1        
 		X.append(X_inst) 
@@ -263,6 +263,8 @@ def equal_width_average_sampling(parse_path, num_t_ints, X_path):
 
 	with open(parse_path, 'rb') as f:
 		full_parsed = pickle.load(f)
+
+	print(full_parsed)
 
 	full_parsed_split = dp.split_features(full_parsed)
 

@@ -204,7 +204,7 @@ def split_features(full_parsed):
         new_parsed (dict) : split data
     '''
 
-    print(full_parsed)
+    # print(full_parsed)
 
     print("Splitting Features")
     for key, value in full_parsed.items():
@@ -432,40 +432,6 @@ def feature_extract(parse_file="", feats_subset=None):
         pickle.dump(full_parsed_split, f)
 
     return full_parsed_split
-
-
-
-
-def preprocess_data(parse_file=None, parse_id="", feats_subset=None):
-    '''
-    Performs feature extraction
-
-    Parameters:
-        parse_file (string) : name of saved parsing if you want to skip that part
-        feats_subset (list) : list of feature you want to extract
-    '''
-
-    full_parsed = feature_extract(parse_file=parse_file, feats_subset=feats_subset)
-    print(full_parsed)
-    full_parsed_split = split_features(full_parsed)
-    with open(parse_file, 'wb') as f:
-        pickle.dump(full_parsed_split, f)   
-
-    # y = get_labels(list(full_parsed.keys()))
-
-    # X = timestamp_bin(full_parsed)
-
-
-    # with open(X_file, 'wb') as f:
-    #     pickle.dump(X, f)
-
-
-    # with open(y_file, 'wb') as f:
-    #     pickle.dump(y, f)
-
-
-    # return X, y
-
 
 
 def get_stored_data(num_tables, num_t_ints=50, percentage=100, beg_mid_end="", X_path="", Y_path=""):
