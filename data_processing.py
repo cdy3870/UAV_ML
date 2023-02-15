@@ -20,8 +20,7 @@ from imblearn.over_sampling import RandomOverSampler, SMOTE
 from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, ClusterCentroids
 import argparse
 
-work_dir = "../../../work/uav-ml/px4-Ulog-Parsers/"
-# work_dir = "px4-Ulog-Parsers/"
+work_dir = "px4-Ulog-Parsers/"
 ulog_folder = os.path.join(work_dir, "dataDownloaded")
 json_file = os.path.join(work_dir, "MetaLogs.json")
 
