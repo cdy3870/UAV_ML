@@ -678,7 +678,7 @@ def apply_sampling(X, y, sample_method, sample_ratio):
 def main():
     base_feats = ['vehicle_local_position | x', 'vehicle_local_position | y', 'vehicle_local_position | z', 'vehicle_attitude_setpoint | roll_body', 'vehicle_attitude_setpoint | pitch_body', 'vehicle_attitude_setpoint | yaw_body', ]
     
-    paper_feats = base_feats + ['manual_control_setpoint | z', '"vehicle_gps_position" | alt', 'battery_status | temperature']
+    paper_feats = base_feats + ['manual_control_setpoint | z', 'vehicle_gps_position | alt', 'battery_status | temperature']
     subset_0 = base_feats + ['vehicle_gps_position | epv', 'vehicle_local_position | dist_bottom', 'manual_control_setpoint | return_switch', 'manual_control_setpoint | rattitude_switch', 'vehicle_local_position | xy_reset_counter']
     subset_1 = base_feats + ['vehicle_local_position | az', 'vehicle_gps_position | hdop', 'vehicle_local_position | ax', 'vehicle_gps_position | eph', 'vehicle_gps_position | vdop']
     subset_2 = base_feats + ['manual_control_setpoint | stab_switch', 'vehicle_local_position | vxy_max', 'home_position | valid_alt', 'vehicle_gps_position | lon', 'home_position | lon']
